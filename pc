@@ -1,0 +1,359 @@
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType, MapType, IntegerType
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType, MapType
+from pyspark.sql.functions import *
+from pyspark.sql.window import Window
+import pyspark.sql.functions as func
+import logging
+import os, sys
+
+def interface_schema():
+    return StructType([
+        StructField("ucgDeviceName", StringType(), True),
+        StructField("ucgJsonData", StructType([
+            StructField("interfaces", StructType([
+                StructField("interface", MapType(StringType(), StructType([
+                    StructField("name", StringType(), True),
+                    StructField("state", StructType([
+                        StructField("counters", StructType([
+                            StructField("carrier-transitions", LongType(), True),
+                            StructField("in-broadcast-pkts", LongType(), True),
+                            StructField("in-discards", LongType(), True),
+                            StructField("in-errors", LongType(), True),
+                            StructField("in-fcs-errors", LongType(), True),
+                            StructField("in-multicast-pkts", LongType(), True),
+                            StructField("in-octets", LongType(), True),
+                            StructField("in-pause-pkts", LongType(), True),
+                            StructField("in-pkts", LongType(), True),
+                            StructField("in-unicast-pkts", LongType(), True),
+                            StructField("in-unknown-proto-pkts", LongType(), True),
+                            StructField("out-broadcast-pkts", LongType(), True),
+                            StructField("out-discards", LongType(), True),
+                            StructField("out-errors", LongType(), True),
+                            StructField("out-multicast-pkts", LongType(), True),
+                            StructField("out-octets", LongType(), True),
+                            StructField("out-pause-pkts", LongType(), True),
+                            StructField("out-pkts", LongType(), True),
+                            StructField("out-unicast-pkts", LongType(), True),
+                            StructField("out-unknown-proto-pkts", LongType(), True),
+                            StructField("last-clear", LongType(), True)
+                        ]), True)
+                    ]), True)
+                ]), True))
+            ]), True),
+            StructField("timestamp", LongType(), True)
+        ]), True),
+        StructField("ucgMessage", StringType(), True),
+        StructField("ucgSequenceNum", StringType(), True),
+        StructField("ucgSource", StringType(), True),
+        StructField("ucgTopic", StringType(), True),
+        StructField("ucgType", StringType(), True),
+        StructField("ucgYangTopic", StringType(), True)
+    ])
+
+def sub_interface_schema():
+    return StructType([
+        StructField("ucgDeviceName", StringType(), True),
+        StructField("ucgJsonData", StructType([
+            StructField("interfaces", StructType([
+                StructField("interface", MapType(StringType(), StructType([
+                    StructField("name", StringType(), True),
+                    StructField("subinterfaces", StructType([
+                        StructField("subinterface", MapType(StringType(), StructType([
+                            StructField("index", StringType(), True),
+                            StructField("state", StructType([
+                                StructField("counters", StructType([
+                                    StructField("in-octets", IntegerType(), True),
+                                    StructField("in-pkts", IntegerType(), True),
+                                    StructField("out-octets", IntegerType(), True),
+                                    StructField("out-pkts", IntegerType(), True)
+                                ]), True)
+                            ]), True)
+                        ])), True)
+                    ]), True)
+                ])), True)
+            ]), True),
+            StructField("timestamp", StringType(), True)
+        ]), True),
+        StructField("ucgMessage", StringType(), True),
+        StructField("ucgSequenceNum", StringType(), True),
+        StructField("ucgSource", StringType(), True),
+        StructField("ucgTopic", StringType(), True),
+        StructField("ucgType", StringType(), True),
+        StructField("ucgYangTopic", StringType(), True)
+    ])
+
+def  interface_adminOps_schema():
+    return StructType([
+        StructField("ucgDeviceName", StringType(), True),
+        StructField("ucgJsonData", StructType([
+            StructField("interfaces", StructType([
+                StructField("interface", MapType(StringType(), StructType([
+                    StructField("name", StringType(), True),
+                    StructField("state", StructType([
+                        StructField("high-speed", LongType(), True),
+                        StructField("admin-status", StringType(), True),
+                        StructField("ifindex", StringType(), True),
+                        StructField("oper-status", StringType(), True),
+                        StructField("mtu", StringType(), True)
+                    ]), True)
+                ]), True))
+            ]), True),
+            StructField("timestamp", LongType(), True)
+        ]), True),
+        StructField("ucgMessage", StringType(), True),
+        StructField("ucgSequenceNum", StringType(), True),
+        StructField("ucgSource", StringType(), True),
+        StructField("ucgTopic", StringType(), True),
+        StructField("ucgType", StringType(), True),
+        StructField("ucgYangTopic", StringType(), True)
+    ])
+
+
+def subinterface_adminOps_schema():
+    return StructType([
+        StructField("ucgDeviceName", StringType(), True),
+        StructField("ucgJsonData", StructType([
+            StructField("interfaces", StructType([
+                StructField("interface", MapType(StringType(), StructType([
+                    StructField("name", StringType(), True),
+                    StructField("subinterfaces", StructType([
+                        StructField("subinterface", MapType(StringType(), StructType([
+                            StructField("index", StringType(), True),
+                            StructField("state", StructType([
+                                StructField("ifindex", StringType(), True),
+                                StructField("admin-status", StringType(), True),
+                                StructField("oper-status", StringType(), True)
+                            ]), True)
+                        ])), True)
+                    ]), True)
+                ])), True)
+            ]), True),
+            StructField("timestamp", StringType(), True)
+        ]), True),
+        StructField("ucgMessage", StringType(), True),
+        StructField("ucgSequenceNum", StringType(), True),
+        StructField("ucgSource", StringType(), True),
+        StructField("ucgTopic", StringType(), True),
+        StructField("ucgType", StringType(), True),
+        StructField("ucgYangTopic", StringType(), True)
+    ])
+
+def main():
+    try:
+        # set up logging 
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s, level=logging.INFO')
+
+        #create Spark Session
+        spark = SparkSession.builder.appName("Ngpc_parsing_job").getOrCreate()
+        sc = spark.sparkContext
+
+        if len(sys.argv) < 5:
+            print("Provided wrong set of arguments. Exiting the process..")
+            sys.exit(-1)
+
+
+        ngpc_perf_input = sys.argv[1]
+        ngpc_interface_intermediate_loc = sys.argv[2]
+        ngpc_subinterface_intermediate_loc = sys.argv[3]
+        final_interface_ngpc_output = sys.argv[4]
+        final_subinterface_ngpc_output = sys.argv[5]
+
+        # Read the JSON files with interface schema
+
+        interface_rawdf = spark.read.json(ngpc_perf_input + '/*.json', schema=interface_schema())
+
+        subinterface_rawdf = spark.read.json(ngpc_perf_input + '/*.json', schema= sub_interface_schema())
+
+        _interface_parsed = interface_rawdf.select("ucgDeviceName",col("ucgJsonData.interfaces.interface").alias("interfaces"), col("ucgJsonData.timestamp")).alias("timestamp") \
+            .select("ucgDeviceName","timestamp",explode(col("interfaces"))) \
+            .select("ucgDeviceName","timestamp","key","value.*") \
+            .select("ucgDeviceName","timestamp","name","state.counters.*") \
+            .withColumn("new_timestamp",from_unixtime(col("timestamp")/1e9, 'yyyy-MM-dd HH:mm:ss')) \
+            .withColumn("fraction_of_seconds", format_number((col("timestamp")%1e9)/1e9, 9)) \
+            .withColumn("fraction_of_seconds", substring( col("fraction_of_seconds"), 3,4)) \
+            .withColumn("timestamp", concat( col("new_timestamp"), lit("."), col("fraction_of_seconds")).cast('timestamp')) \
+            .drop(col("fraction_of_seconds")).drop("new_timestamp").withColumnRenamed("name","interface")\
+            .withColumn("datetype",to_date(col("timestamp"))) \
+            .withColumn("hour",hour(col("timestamp"))) \
+            .withColumn("min", minute(col("timestamp"))) \
+            .withColumn("sec",second(col("timestamp")))
+
+        _subinterface_parsed = subinterface_rawdf.selectExpr("ucgDeviceName", "ucgJsonData.timestamp", "explode(ucgJsonData.interfaces.interface) as (interface, interface_info)") \
+            .selectExpr("ucgDeviceName","timestamp", "interface", "explode(interface_info.subinterfaces.subinterface) as (subinterface_index, subinterface_info)") \
+            .select("ucgDeviceName", "timestamp", "interface",col("subinterface_info.index").alias("subinterface_name") \
+                    ,col("subinterface_info.state.counters.in-octets").alias("in_octets").cast('Long') \
+                    ,col("subinterface_info.state.counters.in-pkts").alias("in_pkts").cast('Long') \
+                    ,col("subinterface_info.state.counters.out-octets").alias("out_octets").cast('Long') \
+                    ,col("subinterface_info.state.counters.out-pkts").alias("out_pkts").cast('Long')) \
+            .withColumn("new_timestamp",from_unixtime(col("timestamp")/1e9, 'yyyy-MM-dd HH:mm:ss')) \
+            .withColumn("fraction_of_seconds", format_number((col("timestamp")%1e9)/1e9, 9)) \
+            .withColumn("fraction_of_seconds", substring( col("fraction_of_seconds"), 3,4)) \
+            .withColumn("timestamp", concat( col("new_timestamp"), lit("."), col("fraction_of_seconds")).cast('timestamp')).drop(col("fraction_of_seconds")) \
+            .withColumn("datetype",to_date(col("timestamp"))) \
+            .withColumn("hour",hour(col("timestamp"))) \
+            .withColumn("min", minute(col("timestamp"))) \
+            .withColumn("sec",second(col("timestamp")))
+
+        logging.info(" Finished flattening data ")
+        logging.info("Writing the flattening data into intermediate location")
+
+        _interface_parsed.coalesce(1).write.format("csv").option("header",True).mode("append").save(ngpc_interface_intermediate_loc)
+        logging.info("Writing the interface flattening  data into output location: {}".format(ngpc_interface_intermediate_loc))
+
+        _subinterface_parsed.coalesce(1).write.format("csv").option("header",True).mode("append").save(ngpc_subinterface_intermediate_loc)
+        logging.info("Writing the sub interface flattening  data into output location: {}".format(ngpc_subinterface_intermediate_loc))
+
+        # Calculation of delta counter 
+        #select few columns for counter and drop the null values with subset as below
+
+
+        cols = list(map(lambda x: x.replace('-','_'), _interface_parsed.columns))
+        _interface_parsed = _interface_parsed.toDF(*cols).withColumnRenamed("ucgDeviceName","deviceName").filter(col("in_octets").isNotNull()).createOrReplaceTempView("interface_stats")
+
+        interface_adminOps_df = spark.read.json(ngpc_perf_input + '/*.json', schema=interface_adminOps_schema())
+        sub_interface_adminOps_df = spark.read.json(ngpc_perf_input + '/*.json', schema=subinterface_adminOps_schema())
+
+        _admin_ops_df= interface_adminOps_df.select("ucgDeviceName",col("ucgJsonData.interfaces.interface").alias("interfaces"), col("ucgJsonData.timestamp")).alias("timestamp") \
+            .select("ucgDeviceName","timestamp",explode(col("interfaces"))) \
+            .select("ucgDeviceName","timestamp","key","value.*").select("ucgDeviceName","timestamp","name","state.*").withColumnRenamed("name","interface") \
+            .withColumn("new_timestamp",from_unixtime(col("timestamp")/1e9, 'yyyy-MM-dd HH:mm:ss')) \
+            .withColumn("fraction_of_seconds", format_number((col("timestamp")%1e9)/1e9, 9)) \
+            .withColumn("fraction_of_seconds", substring( col("fraction_of_seconds"), 3,4)) \
+            .withColumn("timestamp", concat( col("new_timestamp"), lit("."), col("fraction_of_seconds")).cast('timestamp')).drop(col("fraction_of_seconds")).drop("new_timestamp").withColumnRenamed("name","interface") \
+            .withColumn("datetype",to_date(col("timestamp"))) \
+            .withColumn("hour",hour(col("timestamp"))) \
+            .withColumn("min", minute(col("timestamp"))) \
+            .withColumn("sec",second(col("timestamp")))
+
+        cols = list(map(lambda x: x.replace('-','_'), _admin_ops_df.columns))
+        _admin_ops_df = _admin_ops_df.toDF(*cols).filter(col("admin_status").isNotNull()).createOrReplaceTempView("interface_adminops")
+
+        JoinDF = spark.sql("SELECT v.devicename, v.timestamp,v.interface,v.carrier_transitions,v.in_multicast_pkts,v.in_pkts," \
+                           "v.in_octets,v.in_unicast_pkts,v.in_discards,v.in_errors,v.out_discards,v.out_errors," \
+                           "v.out_octets,v.out_pkts,o.oper_status,o.admin_status,o.ifindex,o.high_speed,"\
+                           "o.mtu,v.out_multicast_pkts,v.out_unicast_pkts FROM  interface_stats v LEFT JOIN "\
+                           "interface_adminops o ON v.deviceName=o.ucgDeviceName and v.interface=o.interface and v.datetype=o.datetype and  v.hour=o.hour and v.min=o.min")
+        interface_selected_cols = JoinDF
+
+        """
+        interface_selected_cols = _interface_parsed.select("ucgDeviceName","timestamp","interface","admin-status","oper-status","high-speed","mtu","ifindex",
+                                                           "carrier-transitions","in-discards","in-errors","in-octets","in-pkts","out-discards","out-errors","out-octets","out-pkts") \
+            .na.drop(subset=["ucgDeviceName","timestamp","interface","in-octets"])
+        
+
+        sub_interface_selected_cols = _subinterface_parsed.select("ucgDeviceName","interface","timestamp","subinterface_name","admin-status","oper-status",
+                                                                  "ifindex","in_octets","in_pkts","out_octets","out_pkts").withColumnRenamed("subinterface_name","subinterface") \
+            .na.drop(subset=["ucgDeviceName","timestamp","interface","in_octets"])
+        """
+        cols = list(map(lambda x: x.replace('-','_'), _subinterface_parsed.columns))
+        _subinterface_parsed = _subinterface_parsed.toDF(*cols).withColumnRenamed("ucgDeviceName","deviceName").withColumnRenamed("subinterface_name","subinterface")\
+            .filter(col("in_octets").isNotNull()).createOrReplaceTempView("sub_stats")
+
+        _sub_admin_ops = sub_interface_adminOps_df.selectExpr("ucgDeviceName", "ucgJsonData.timestamp", "explode(ucgJsonData.interfaces.interface) as (interface, interface_info)") \
+            .selectExpr("ucgDeviceName","timestamp", "interface", "explode(interface_info.subinterfaces.subinterface) as (subinterface_index, subinterface_info)") \
+            .select("ucgDeviceName", "timestamp", "interface",col("subinterface_info.index").alias("subinterface"),"subinterface_info.state.ifindex","subinterface_info.state.admin-status","subinterface_info.state.oper-status") \
+            .withColumn("new_timestamp",from_unixtime(col("timestamp")/1e9, 'yyyy-MM-dd HH:mm:ss')) \
+            .withColumn("fraction_of_seconds", format_number((col("timestamp")%1e9)/1e9, 9)) \
+            .withColumn("fraction_of_seconds", substring( col("fraction_of_seconds"), 3,4)) \
+            .withColumn("timestamp", concat( col("new_timestamp"), lit("."), col("fraction_of_seconds")).cast('timestamp')).drop(col("fraction_of_seconds")) \
+            .withColumn("datetype",to_date(col("timestamp"))) \
+            .withColumn("hour",hour(col("timestamp"))) \
+            .withColumn("min", minute(col("timestamp"))) \
+            .withColumn("sec",second(col("timestamp")))
+
+        cols = list(map(lambda x: x.replace('-','_'), _sub_admin_ops.columns))
+        _subinterface_adminOps  = _sub_admin_ops.toDF(*cols).filter(col("oper_status").isNotNull()).createOrReplaceTempView("sub_adminops")
+
+        JoinDF_sub  = spark.sql("SELECT v.devicename, v.timestamp,v.interface,v.in_octets,v.in_pkts,v.out_octets,"\
+                                "v.out_pkts,o.oper_status,o.admin_status,o.ifindex FROM  sub_stats v LEFT JOIN "\
+                                "sub_adminops o ON v.deviceName=o.ucgDeviceName and v.interface=o.interface "\
+                                "and v.subinterface = o.subinterface and v.datetype=o.datetype and  v.hour=o.hour and v.min=o.min")
+
+        sub_interface_selected_cols = JoinDF_sub
+
+
+        ### Defining the window 
+        Windowspec = Window.partitionBy("devicename","interface").orderBy("timestamp")
+
+        ### Calculating lag of price at each day level
+        prev_time_calc= interface_selected_cols.withColumn('prev_time',
+                                                           func.lag(interface_selected_cols['timestamp'])
+                                                           .over(Windowspec)) \
+            .withColumn('prev_in_octets',
+                        func.lag(interface_selected_cols['in_octets'])
+                        .over(Windowspec)) \
+            .withColumn('prev_in_pkts',
+                        func.lag(interface_selected_cols['in_pkts'])
+                        .over(Windowspec)) \
+            .withColumn('prev_out_octets',
+                        func.lag(interface_selected_cols['out_octets'])
+                        .over(Windowspec)) \
+            .withColumn('prev_out_pkts',
+                        func.lag(interface_selected_cols['out_pkts'])
+                        .over(Windowspec))
+
+        ### Calculating the delta
+        interface_delta_result = prev_time_calc.withColumn('delta_time_sec',
+                                                           when(col("prev_time").isNotNull(),(unix_timestamp('timestamp') - unix_timestamp('prev_time')).cast('long')).otherwise(lit(0))) \
+            .withColumn('delta_in_octets',
+                        when( col("prev_in_octets").isNotNull(), (prev_time_calc['in_octets'] - prev_time_calc['prev_in_octets'])).otherwise(lit(0))) \
+            .withColumn('delta_in_pkts',
+                        when( col("prev_in_pkts").isNotNull(), (prev_time_calc['in_pkts'] - prev_time_calc['prev_in_pkts'])).otherwise(lit(0))) \
+            .withColumn('delta_out_octets',
+                        when(col("prev_out_octets").isNotNull(),(prev_time_calc['out_octets'] - prev_time_calc['prev_out_octets'])).otherwise(lit(0))) \
+            .withColumn('delta_out_pkts',
+                        when(col("prev_out_pkts").isNotNull(),(prev_time_calc['out_pkts'] - prev_time_calc['prev_out_pkts'])).otherwise(lit(0)))
+
+        interface_delta_result.coalesce(1).write.mode("append").format("json").save(final_interface_ngpc_output)
+        logging.info("Final data has been written to output location: {}".format(final_interface_ngpc_output))
+
+
+        ### Defining the window 
+        Windowspec_sub = Window.partitionBy("devicename","interface","subinterface").orderBy("timestamp")
+
+        ### Calculating lag of price at each day level
+        sub_prev_time_calc= sub_interface_selected_cols.withColumn('prev_time',
+                                                                   func.lag(sub_interface_selected_cols['timestamp'])
+                                                                   .over(Windowspec_sub)) \
+            .withColumn('prev_in_octets',
+                        func.lag(sub_interface_selected_cols['in_octets'])
+                        .over(Windowspec_sub)) \
+            .withColumn('prev_in_pkts',
+                        func.lag(sub_interface_selected_cols['in_pkts'])
+                        .over(Windowspec_sub)) \
+            .withColumn('prev_out_octets',
+                        func.lag(sub_interface_selected_cols['out_octets'])
+                        .over(Windowspec_sub)) \
+            .withColumn('prev_out_pkts',
+                        func.lag(sub_interface_selected_cols['out_pkts'])
+                        .over(Windowspec_sub))
+
+
+        delta_sub_result = sub_prev_time_calc.withColumn('delta_time',
+                                                         when(col("prev_time").isNotNull(),(unix_timestamp('timestamp') - unix_timestamp('prev_time')).cast('long')).otherwise(lit(0))) \
+            .withColumn('delta_in_octets',
+                        when( col("prev_in_octets").isNotNull(), (sub_prev_time_calc['in_octets'] - sub_prev_time_calc['prev_in_octets'])).otherwise(lit(0))) \
+            .withColumn('delta_in_pkts',
+                        when( col("prev_in_pkts").isNotNull(), (sub_prev_time_calc['in_pkts'] - sub_prev_time_calc['prev_in_pkts'])).otherwise(lit(0))) \
+            .withColumn('delta_out_octets',
+                        when(col("prev_out_octets").isNotNull(),(sub_prev_time_calc['out_octets'] - sub_prev_time_calc['prev_out_octets'])).otherwise(lit(0))) \
+            .withColumn('delta_out_pkts',
+                        when(col("prev_out_pkts").isNotNull(),(sub_prev_time_calc['out_pkts'] - sub_prev_time_calc['prev_out_pkts'])).otherwise(lit(0)))
+
+        delta_sub_result.coalesce(1).write.mode("append").format("json").save(final_subinterface_ngpc_output)
+        logging.info("Final data for subinterface has been written to output location: {}".format(final_subinterface_ngpc_output))
+        logging.info("Finished processing JSON files")
+
+    except FileNotFoundError as e:
+        logging.error("File not found error : {}". format(e))
+    except ValueError as e:
+        logging.error("Value error: {}".format(e))
+    except Exception as e:
+        logging.error("An error occurred: {}".format(e))
+    finally:
+        spark.stop()
+
+if __name__ == "__main__":
+    main()
