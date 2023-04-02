@@ -1,0 +1,42 @@
+from pyspark.streaming import StreamingContext
+from pulsar import Client, AuthenticationTls
+import json
+
+# Define the Pulsar configuration
+pulsar_conf = {
+    'service_url': 'pulsar+ssl://<broker-url>:6651',
+    'auth': AuthenticationTls(
+        cert_file_path='<path-to-tls-cert>',
+        key_file_path='<path-to-tls-key>',
+        trust_certs_file_path='<path-to-ca-cert>'
+    ),
+    'topic': '<topic-name>'
+}
+
+# Define the Spark StreamingContext
+ssc = StreamingContext(sparkContext, batchDuration=10)
+
+# Create the Pulsar client
+pulsar_client = Client(**pulsar_conf)
+
+# Create the Pulsar consumer
+consumer = pulsar_client.subscribe(pulsar_conf['topic'])
+
+# Define the function to process each batch of messages
+def process_batch(rdd):
+    messages = rdd.collect()
+    for msg in messages:
+        data = json.loads(msg.data().decode('utf-8'))
+        # Do something with the data
+
+# Create the DStream by polling the Pulsar topic for messages
+dstream = ssc.queueStream([], default=None, oneAtATime=False).transform(
+    lambda rdd: rdd.map(lambda x: consumer.receive())
+)
+
+# Process each batch of messages
+dstream.foreachRDD(process_batch)
+
+# Start the streaming context
+ssc.start()
+ssc.awaitTermination()
