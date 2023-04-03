@@ -1,0 +1,47 @@
+schema = {
+    "type": "struct",
+    "fields": [
+        { "name": "ucgDeviceName", "type": "string", "nullable": true },
+        { "name": "ucgJsonData", "type": {
+            "type": "struct",
+            "fields": [
+                { "name": "interfaces", "type": {
+                    "type": "struct",
+                    "fields": [
+                        { "name": "interface", "type": {
+                            "type": "map",
+                            "keyType": "string",
+                            "valueType": {
+                                "type": "struct",
+                                "fields": [
+                                    { "name": "name", "type": "string", "nullable": true },
+                                    { "name": "state", "type": {
+                                        "type": "struct",
+                                        "fields": [
+                                            { "name": "high-speed", "type": "long", "nullable": true },
+                                            { "name": "admin-status", "type": "string", "nullable": true },
+                                            { "name": "ifindex", "type": "string", "nullable": true },
+                                            { "name": "oper-status", "type": "string", "nullable": true },
+                                            { "name": "mtu", "type": "string", "nullable": true }
+                                        ],
+                                        "nullable": true
+                                    }, "nullable": true }
+                                ]
+                            },
+                            "nullable": true
+                        } }
+                    ],
+                    "nullable": true
+                }, "nullable": true },
+                { "name": "timestamp", "type": "long", "nullable": true }
+            ]
+        }, "nullable": true },
+        { "name": "ucgMessage", "type": "string", "nullable": true },
+        { "name": "ucgSequenceNum", "type": "string", "nullable": true },
+        { "name": "ucgSource", "type": "string", "nullable": true },
+        { "name": "ucgTopic", "type": "string", "nullable": true },
+        { "name": "ucgType", "type": "string", "nullable": true },
+        { "name": "ucgYangTopic", "type": "string", "nullable": true }
+    ]
+}
+
