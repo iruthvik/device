@@ -1,0 +1,65 @@
+import pulsar
+from pyspark.sql.functions import col, from_json
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+from pyspark.streaming import StreamingContext
+
+pulsar_conf = {
+    'service_url': 'pulsar+ssl://<broker-url>:6651',
+    'authentication': AuthenticationTLS('<path-to-tls-cert>', '<path-to-tls-key>'),
+    'tls_trust_certs_file_path': '<path-to-ca-cert>',
+    'topic': '<topic-name>'
+}
+
+schema = StructType([
+    StructField("col1", StringType()),
+    StructField("col2", StringType())
+])
+
+ssc = StreamingContext(spark.sparkContext, batchDuration=10)
+
+def process_message(rdd):
+    if not rdd.isEmpty():
+        msg_list = rdd.collect()
+
+        for msg in msg_list:
+            # Print message data for inspection
+            print(msg.data().decode("utf-8"))
+
+        # Convert messages to dataframe rows
+        rows = [(msg.data().decode("utf-8").split(",")[0], msg.data().decode("utf-8").split(",")[1]) for msg in msg_list]
+        msg_df = spark.createDataFrame(rows, schema)
+
+        # Filter columns with datatype=IP and perform aggregation transformations
+        result_df = msg_df.filter(col("col1").rlike("\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}")) \
+                          .groupBy("col1") \
+                          .agg({"col2": "avg", "col2": "max", "col2": "min"})
+
+        # Print the results
+        result_df.show()
+
+        # Acknowledge messages after processing
+        for msg in msg_list:
+            consumer.acknowledge(msg)
+
+client = pulsar.Client(
+    service_url=pulsar_conf['service_url'],
+    authentication=pulsar_conf['authentication'],
+    tls_trust_certs_file_path=pulsar_conf['tls_trust_certs_file_path']
+)
+
+consumer = client.subscribe(pulsar_conf['topic'], subscription_name='test')
+
+# Create a DStream from the Pulsar messages
+dstream = ssc.pulsarStream(
+    pulsar_conf['service_url'],
+    pulsar_conf['topic'],
+    subscriptionName='test',
+    conf={'client.auth.authentication': pulsar_conf['authentication'],
+          'client.auth.tls.trustCertsFilePath': pulsar_conf['tls_trust_certs_file_path']}
+)
+
+# Process the messages in each batch interval
+dstream.foreachRDD(process_message)
+
+ssc.start()
+ssc.awaitTermination()
