@@ -1,0 +1,65 @@
+from pulsar import Client
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+
+# Create a SparkSession
+spark = SparkSession.builder.appName("Pulsar-DF").getOrCreate()
+
+# Define the Pulsar configuration
+pulsar_conf = {
+    'service_url': 'pulsar+ssl://<broker-url>:6651',
+    'authentication': AuthenticationTLS('<path-to-tls-cert>', '<path-to-tls-key>'),
+    'tls_trust_certs_file_path': '<path-to-ca-cert>',
+    'topic': '<topic-name>'
+}
+
+# Define the schema for the messages
+schema = StructType([
+    StructField("ip_address", StringType()),
+    StructField("datatype", StringType())
+])
+
+# Connect to the Pulsar client
+client = Client(pulsar_conf["service_url"], authentication=pulsar_conf["authentication"],
+                tls trust certs file path=pulsar_conf["tls_trust_certs_file_path"])
+
+# Subscribe to the Pulsar topic
+consumer = client.subscribe(pulsar_conf["topic"], subscription_name="spark-subscription")
+
+# Infinite loop to continuously process messages
+while True:
+    # Receive a batch of messages
+    msg_batch = consumer.receive(batch_size=100)
+
+    # Create an empty list to store the messages
+    msg_list = []
+
+    # Iterate over the messages in the batch
+    for msg in msg_batch:
+        # Decode the message value from bytes to string
+        msg_value = msg.data().decode("utf-8")
+
+        # Parse the message into a tuple
+        msg_tuple = tuple(msg_value.split(","))
+
+        # Append the tuple to the list of messages
+        msg_list.append(msg_tuple)
+
+        # Acknowledge the message to remove it from the topic
+        consumer.acknowledge(msg)
+
+    # Convert the list of messages to a PySpark DataFrame
+    msg_df = spark.createDataFrame(msg_list, schema)
+
+    # Filter the DataFrame to only include columns with datatype=IP
+    ip_df = msg_df.filter(msg_df["datatype"] == "IP")
+
+    # Apply aggregation transformations to the DataFrame
+    agg_df = ip_df.groupBy("ip_address").agg(count("*").alias("count"))
+
+    # Show the resulting DataFrame
+    agg_df.show()
+
+# Disconnect from the Pulsar client
+client.close()
