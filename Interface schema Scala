@@ -1,0 +1,44 @@
+import org.apache.spark.sql.types._
+
+def interfaceSchema: StructType = StructType(Array(
+  StructField("ucgDeviceName", StringType, nullable = true),
+  StructField("ucgJsonData", StructType(Array(
+    StructField("interfaces", StructType(Array(
+      StructField("interface", MapType(StringType, StructType(Array(
+        StructField("name", StringType, nullable = true),
+        StructField("state", StructType(Array(
+          StructField("counters", StructType(Array(
+            StructField("carrier-transitions", LongType, nullable = true),
+            StructField("in-broadcast-pkts", LongType, nullable = true),
+            StructField("in-discards", LongType, nullable = true),
+            StructField("in-errors", LongType, nullable = true),
+            StructField("in-fcs-errors", LongType, nullable = true),
+            StructField("in-multicast-pkts", LongType, nullable = true),
+            StructField("in-octets", LongType, nullable = true),
+            StructField("in-pause-pkts", LongType, nullable = true),
+            StructField("in-pkts", LongType, nullable = true),
+            StructField("in-unicast-pkts", LongType, nullable = true),
+            StructField("in-unknown-proto-pkts", LongType, nullable = true),
+            StructField("out-broadcast-pkts", LongType, nullable = true),
+            StructField("out-discards", LongType, nullable = true),
+            StructField("out-errors", LongType, nullable = true),
+            StructField("out-multicast-pkts", LongType, nullable = true),
+            StructField("out-octets", LongType, nullable = true),
+            StructField("out-pause-pkts", LongType, nullable = true),
+            StructField("out-pkts", LongType, nullable = true),
+            StructField("out-unicast-pkts", LongType, nullable = true),
+            StructField("out-unknown-proto-pkts", LongType, nullable = true),
+            StructField("last-clear", LongType, nullable = true)
+          )), nullable = true)
+        )), nullable = true)
+      )), nullable = true))
+    )), nullable = true),
+    StructField("timestamp", LongType, nullable = true)
+  )), nullable = true),
+  StructField("ucgMessage", StringType, nullable = true),
+  StructField("ucgSequenceNum", StringType, nullable = true),
+  StructField("ucgSource", StringType, nullable = true),
+  StructField("ucgTopic", StringType, nullable = true),
+  StructField("ucgType", StringType, nullable = true),
+  StructField("ucgYangTopic", StringType, nullable = true)
+))
