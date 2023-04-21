@@ -1,0 +1,54 @@
+import org.apache.spark.sql.types._
+
+val schema = StructType(Seq(
+  StructField("ucgDeviceName", StringType, nullable = true),
+  StructField("ucgJsonData", StructType(Seq(
+    StructField("components", StructType(Seq(
+      StructField("component", MapType(StringType, StructType(Seq(
+        StructField("name", StringType, nullable = true),
+        StructField("transceiver", StructType(Seq(
+          StructField("physical-channels", StructType(Seq(
+            StructField("channel", MapType(StringType, StructType(Seq(
+              StructField("index", StringType, nullable = true),
+              StructField("state", StructType(Seq(
+                StructField("description", StringType, nullable = true),
+                StructField("input-power", StructType(Seq(
+                  StructField("instant", IntegerType, nullable = true)
+                )), nullable = true),
+                StructField("laser-bias-current", StructType(Seq(
+                  StructField("instant", IntegerType, nullable = true)
+                )), nullable = true),
+                StructField("output-power", StructType(Seq(
+                  StructField("instant", IntegerType, nullable = true)
+                )), nullable = true),
+                StructField("target-output-power", IntegerType, nullable = true),
+                StructField("tx-laser", BooleanType, nullable = true)
+              )), nullable = true)
+            )), nullable = true)
+          )), nullable = true)
+        )), nullable = true)
+      )), nullable = true)
+    )), nullable = true),
+    StructField("timestamp", LongType, nullable = true)
+  )), nullable = true),
+  StructField("ucgMessage", StringType, nullable = true),
+  StructField("ucgSequenceNum", StringType, nullable = true),
+  StructField("ucgSource", StringType, nullable = true),
+  StructField("ucgTimestamp", StringType, nullable = true),
+  StructField("ucgTopic", StringType, nullable = true),
+  StructField("ucgType", StringType, nullable = true),
+  StructField("ucgYangTopic", StringType, nullable = true)
+))
+
+
+import org.apache.spark.sql.functions._
+
+val df = spark.read.schema(schema).json("path/to/json/file")
+
+// To extract the "state" field inside a dynamic component and channel field, we can use the getItem function with a string argument
+val explodedDF = df.select(explode($"ucgJsonData.components.component").as("component"), $"ucgJsonData.timestamp")
+  .select($"component._1".as("component"), explode($"component._2.transceiver.physical-channels.channel").as("channel"), $"timestamp")
+  .select($"component", $"channel._1".as("channel"), $"channel._2.state".as("state"), $"timestamp")
+
+// To print the "description" field inside the "state" field for all components and channels:
+explodedDF.select($"component", $"channel", $"state.description").show()
