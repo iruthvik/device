@@ -103,3 +103,45 @@ val schema = StructType(Seq(
   StructField("ucgType", StringType, nullable = true),
   StructField("ucgYangTopic", StringType, nullable = true)
 ))
+---
+import org.apache.spark.sql.functions._
+
+// assume your JSON data is stored in a file called "input.json"
+val df = spark.read.json("input.json")
+
+// select the necessary columns from the JSON structure
+val selectedDF = df.select(
+  col("ucgDeviceName"),
+  col("ucgJsonData.components.component"),
+  col("ucgJsonData.timestamp")
+)
+
+// explode the map column to create separate rows for each key-value pair
+val explodedDF = selectedDF.select(
+  col("ucgDeviceName"),
+  explode(col("component")).as(Seq("component_key", "component_value")),
+  col("timestamp")
+)
+
+// extract the necessary fields from the nested structure
+val finalDF = explodedDF.select(
+  col("ucgDeviceName"),
+  col("component_key"),
+  col("component_value.transceiver.physical-channels.channel"),
+  col("timestamp")
+).withColumn("channel_key", explode(col("channel")))
+ .select(
+   col("ucgDeviceName"),
+   col("component_key").as("component"),
+   col("channel_key").as("channel"),
+   col("channel[channel_key].state.description").as("description"),
+   col("channel[channel_key].state.input-power.instant").as("input_power_instant"),
+   col("channel[channel_key].state.laser-bias-current.instant").as("laser_bias_current_instant"),
+   col("channel[channel_key].state.output-power.instant").as("output_power_instant"),
+   col("channel[channel_key].state.target-output-power").as("target_output_power"),
+   col("channel[channel_key].state.tx-laser").as("tx_laser"),
+   col("timestamp")
+ )
+ 
+finalDF.show()
+
