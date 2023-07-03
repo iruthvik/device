@@ -1,0 +1,51 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, explode
+
+# Initialize Spark session
+spark = SparkSession.builder.appName("JSONParser").getOrCreate()
+
+# Define the HDFS path where the JSON files are located
+hdfs_path = "hdfs://<YOUR_HDFS_SERVER>:<PORT>/<PATH_TO_JSON_FILES>"
+
+# Read JSON files from HDFS and infer the schema
+df = spark.read.json(hdfs_path, multiLine=True, inferSchema=True)
+
+# Function to flatten the nested structures
+def flatten_nested(df, parent=None):
+    # If the parent is None, set it to an empty string
+    if parent is None:
+        parent = ""
+
+    # Initialize an empty list to store the flattened columns
+    columns = []
+
+    # Iterate over the DataFrame columns
+    for col_name in df.columns:
+        # If the column is a StructType, recursively flatten it
+        if str(df.schema[col_name].dataType).startswith("StructType"):
+            columns += flatten_nested(df.select(col_name + ".*"), parent + col_name + ".")
+        else:
+            # If the column is an ArrayType, explode it and add it to the DataFrame
+            if str(df.schema[col_name].dataType).startswith("ArrayType"):
+                df = df.withColumn(col_name, explode(col(col_name)))
+
+            # Rename the column with the nested parent prefix
+            df = df.withColumnRenamed(col_name, parent + col_name)
+
+            # Add the column to the list of flattened columns
+            columns.append(parent + col_name)
+
+    return df
+
+# Call the function to flatten the nested structures in the DataFrame
+df = flatten_nested(df)
+
+# Print the DataFrame schema
+df.printSchema()
+
+# Now you can perform further operations on the parsed DataFrame
+# For example, you can save it as a Parquet file
+# df.write.parquet("hdfs://<YOUR_HDFS_SERVER>:<PORT>/<OUTPUT_PATH>")
+
+# Stop the Spark session
+spark.stop()
