@@ -1,0 +1,102 @@
+from pyspark.sql import SparkSession
+
+# Create a Spark session
+spark = SparkSession.builder.appName("example").getOrCreate()
+
+# Define the input data
+data = [
+    ("DLL", "10-03-2023 13:50", "et-1/23", 5196985),
+    ("DLL", "10-03-2023 13:51", "et-1/23", 5197052),
+    ("DLL", "10-03-2023 13:52", "et-1/23", 5197118),
+    ("DLL", "10-03-2023 13:53", "et-1/23", 5197184),
+    ("DLL", "10-03-2023 13:54", "et-1/23", 5197250),
+    ("DLL", "10-03-2023 13:55", "et-1/23", 5197316),
+    ("DLL", "10-03-2023 13:56", "et-1/23", 5197382),
+    ("DLL", "10-03-2023 13:57", "et-1/23", 5197448),
+    ("DLL", "10-03-2023 13:58", "et-1/23", 5197514),
+    ("DLL", "10-03-2023 13:59", "et-1/23", 5197646),
+    ("DLL", "10-03-2023 14:00", "et-1/23", 5197712)
+]
+
+# Create a DataFrame
+df = spark.createDataFrame(data, ["devicename", "timestamp", "interface", "in_octets"])
+
+# Create a temporary table
+df.createOrReplaceTempView("temp")
+
+# Perform the calculation using Spark SQL
+result = spark.sql("""
+    SELECT 
+        devicename,
+        MIN(timestamp) AS start_timestamp,
+        MAX(timestamp) AS end_timestamp,
+        interface,
+        first(in_octets) AS in_octets,
+        MAX(in_octets) - first(in_octets) AS delta_in_octets
+    FROM (
+        SELECT 
+            devicename,
+            timestamp,
+            interface,
+            in_octets,
+            CEIL(CAST(SUM(CAST(timestamp AS TIMESTAMP) - LAG(CAST(timestamp AS TIMESTAMP), 4) OVER(PARTITION BY devicename, interface ORDER BY CAST(timestamp AS TIMESTAMP))) AS DOUBLE) / 300) AS group_id
+        FROM temp
+    ) temp_grouped
+    GROUP BY devicename, interface, group_id
+    ORDER BY start_timestamp
+""")
+
+# Show the result
+result.show()
+
+
+
+                   ----
+
+                   ----
+
+                   no sql 
+                   ---
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.{col, lag, ceil, sum}
+
+// Create a Spark session
+val spark = SparkSession.builder.appName("example").getOrCreate()
+
+// Define the input data
+val data = Seq(
+  ("DLL", "10-03-2023 13:50", "et-1/23", 5196985),
+  ("DLL", "10-03-2023 13:51", "et-1/23", 5197052),
+  ("DLL", "10-03-2023 13:52", "et-1/23", 5197118),
+  ("DLL", "10-03-2023 13:53", "et-1/23", 5197184),
+  ("DLL", "10-03-2023 13:54", "et-1/23", 5197250),
+  ("DLL", "10-03-2023 13:55", "et-1/23", 5197316),
+  ("DLL", "10-03-2023 13:56", "et-1/23", 5197382),
+  ("DLL", "10-03-2023 13:57", "et-1/23", 5197448),
+  ("DLL", "10-03-2023 13:58", "et-1/23", 5197514),
+  ("DLL", "10-03-2023 13:59", "et-1/23", 5197646),
+  ("DLL", "10-03-2023 14:00", "et-1/23", 5197712)
+)
+
+// Create a DataFrame
+val df = spark.createDataFrame(data).toDF("devicename", "timestamp", "interface", "in_octets")
+
+// Define a window specification
+val windowSpec = Window.partitionBy("devicename", "interface").orderBy("timestamp")
+
+// Calculate the difference between the 5th record and the 1st record for every 5 minutes
+val result = df.withColumn("row_num", sum(lit(1)).over(windowSpec))
+  .withColumn("group_id", ceil(col("row_num") / 5).cast("integer"))
+  .groupBy("devicename", "interface", "group_id")
+  .agg(
+    min("timestamp").alias("start_timestamp"),
+    max("timestamp").alias("end_timestamp"),
+    first("in_octets").alias("in_octets"),
+    (max("in_octets") - first("in_octets")).alias("delta_in_octets")
+  )
+  .orderBy("start_timestamp")
+
+// Show the result
+result.show()
+                  
