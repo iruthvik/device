@@ -101,3 +101,36 @@ val resultDF: DataFrame = spark.sql(query)
 
 // Show or perform further operations on resultDF as needed
 resultDF.show()
+
+
+
+.…..........
+
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.{col, unix_timestamp, lead, lag}
+
+// Assuming you have a DataFrame named 'df' with 'timestamp' and 'bytes' columns
+
+// Create a window specification partitioned by 5-minute intervals
+val windowSpec = Window.orderBy(unix_timestamp(col("timestamp"))).rangeBetween(-240, 0)
+
+// Calculate the lead and lag of bytes
+val lagBytes = lag(col("bytes"), 4).over(windowSpec)
+val leadBytes = lead(col("bytes"), 4).over(windowSpec)
+
+// Calculate the maximum timestamp and minimum timestamp in the window
+val maxTimestamp = max(unix_timestamp(col("timestamp"))).over(windowSpec)
+val minTimestamp = min(unix_timestamp(col("timestamp"))).over(windowSpec)
+
+// Calculate the interval in seconds
+val intervalSeconds = maxTimestamp - minTimestamp
+
+// Select the required columns
+val resultDF = df
+  .withColumn("BytesDifference", leadBytes - lagBytes)
+  .withColumn("IntervalSeconds", intervalSeconds)
+  .filter(intervalSeconds.isNotNull)
+  .filter(col("BytesDifference").isNotNull)
+
+// Show or perform further operations on resultDF as needed
+resultDF.show()
