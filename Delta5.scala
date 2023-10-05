@@ -134,3 +134,35 @@ val resultDF = df
 
 // Show or perform further operations on resultDF as needed
 resultDF.show()
+
+
+
+......
+
+import org.apache.spark.sql.functions.{col, unix_timestamp}
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.DataFrame
+
+// Assuming you have a DataFrame named 'df' with 'timestamp' and 'bytes' columns
+
+// Calculate the unix timestamp of 'timestamp' column
+val dfWithUnixTimestamp = df.withColumn("unix_timestamp", unix_timestamp(col("timestamp")))
+
+// Create a window specification partitioned by 5-minute intervals
+val windowSpec = Window.orderBy(col("unix_timestamp")).rangeBetween(-5 * 60, 0)
+
+// Calculate the sum of bytes for each 5-minute interval
+val sumBytes = dfWithUnixTimestamp
+  .withColumn("BytesSum", sum(col("bytes")).over(windowSpec))
+
+// Filter the rows to get every 5th record (5th minute)
+val resultDF = sumBytes
+  .filter(col("unix_timestamp") % (5 * 60) === 0)
+
+// Calculate the interval in seconds
+resultDF.createOrReplaceTempView("temp")
+val query = "SELECT *, unix_timestamp - LAG(unix_timestamp) OVER(ORDER BY unix_timestamp) AS IntervalSeconds FROM temp"
+val finalResult = spark.sql(query)
+
+// Show or perform further operations on finalResult as needed
+finalResult.show()
