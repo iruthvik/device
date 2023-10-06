@@ -1,0 +1,31 @@
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
+
+def calculateDelta(df: DataFrame, columns: List[String], windowDuration: String, watermarkDuration: String): DataFrame = {
+  val maxColumnsExpr = columns.map(colName => expr(s"max($colName) as max_$colName"))
+  val minColumnsExpr = columns.map(colName => expr(s"min($colName) as min_$colName"))
+  val allColumnsExpr = maxColumnsExpr ++ minColumnsExpr
+
+  // Adjust the watermark and window
+  val adjustedDF = df.withWatermark("timestamp", watermarkDuration)
+  val windowedDF = adjustedDF
+    .withColumn("start_of_window", date_trunc(windowDuration, col("timestamp")))
+    .groupBy("start_of_window", col("devicename"), col("interface"))
+    .agg(allColumnsExpr.head, allColumnsExpr.tail: _*)
+
+  val deltaColumns = columns :+ "start_of_window" // including for delta time
+
+  val deltaDF = deltaColumns.foldLeft(windowedDF) { (df, colName) =>
+    val deltaColumn = col(s"max_$colName") - col(s"min_$colName")
+    if (colName == "start_of_window") {
+      df.withColumn("start timestamp", col("start_of_window"))
+        .withColumn("end timestamp", expr("date_add(start_of_window, interval 5 minutes)"))
+        .withColumn("delta_time", lit(null).cast(LongType))
+    } else {
+      df.withColumn(s"delta_$colName", deltaColumn)
+    }
+  }
+  deltaDF.drop("start_of_window") // Drop the 'start_of_window' column as it's no longer needed
+}
+
+val deltaDF = calculateDelta(finalDF, List("in_octets", "out_octets", "in_packets", "out_packets"), "5 minutes", "5 minutes")
