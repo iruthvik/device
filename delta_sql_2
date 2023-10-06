@@ -1,0 +1,63 @@
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
+
+def calculateDelta(df: DataFrame, columns: List[String], watermarkDuration: String): DataFrame = {
+  val maxColumnsExpr = columns.map(colName => expr(s"max($colName) as max_$colName"))
+  val minColumnsExpr = columns.map(colName => expr(s"min($colName) as min_$colName"))
+  val allColumnsExpr = maxColumnsExpr ++ minColumnsExpr
+
+  // Adjust the watermark
+  val adjustedDF = df.withWatermark("timestamp", watermarkDuration)
+
+  val deltaColumns = columns
+
+  val deltaDF = deltaColumns.foldLeft(adjustedDF) { (df, colName) =>
+    val deltaColumn = col(s"max_$colName") - col(s"min_$colName")
+    df.withColumn(s"delta_$colName", deltaColumn)
+  }
+
+  deltaDF
+}
+
+val deltaDF = calculateDelta(finalDF, List("in_octets", "out_octets", "in_packets", "out_packets"), "5 minutes")
+
+deltaDF.createOrReplaceTempView("delta_table")
+
+// Calculate the start and end timestamps for each 5-minute interval
+val intervalDF = spark.sql("""
+  SELECT 
+    devicename, 
+    interface, 
+    MIN(timestamp) AS start_timestamp, 
+    MAX(timestamp) AS end_timestamp 
+  FROM delta_table 
+  GROUP BY 
+    devicename, 
+    interface, 
+    window(timestamp, '5 minutes', '5 minutes') 
+  ORDER BY 
+    devicename, 
+    interface, 
+    start_timestamp
+""")
+
+// Join the interval data with delta data
+val resultDF = deltaDF.join(
+  intervalDF,
+  deltaDF("devicename") === intervalDF("devicename") &&
+  deltaDF("interface") === intervalDF("interface") &&
+  deltaDF("timestamp") >= intervalDF("start_timestamp") &&
+  deltaDF("timestamp") <= intervalDF("end_timestamp")
+).select(
+  "devicename", 
+  "start_timestamp", 
+  "end_timestamp", 
+  "interface", 
+  "in_octets", 
+  "delta_in_octets"
+).orderBy(
+  "devicename", 
+  "start_timestamp"
+)
+
+resultDF.show(false)
