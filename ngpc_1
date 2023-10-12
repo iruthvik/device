@@ -1,0 +1,50 @@
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.functions.{col, max, min, window, sum, expr}
+
+// Initialize a Spark session
+val spark = SparkSession.builder.appName("5-Minute Rolling Delta Calculation").getOrCreate()
+
+// Define a streaming DataFrame or load data from a streaming source
+val streamingDF = spark
+  .readStream
+  .format("your_streaming_source_format")
+  .option("your_streaming_source_options")
+  .load()
+
+// Calculate 5-minute intervals
+val dfWithTimeWindow = streamingDF
+  .withColumn("time_window", expr("window(timestamp, '5 minutes')"))
+
+// Self-join the DataFrame to calculate the difference within each 5-minute window, including overlapping records
+val selfJoinedDF = dfWithTimeWindow.as("a")
+  .join(dfWithTimeWindow.as("b"),
+    col("a.deviecname") === col("b.deviecname") &&
+    col("a.interface") === col("b.interface") &&
+    col("b.time_window.start") <= col("a.timestamp") &&
+    col("a.timestamp") <= col("b.time_window.end")
+  )
+  .select(
+    col("a.deviecname"),
+    col("a.interface"),
+    col("a.time_window"),
+    max(col("b.in_octets")).as("max_value"),
+    min(col("b.in_octets")).as("min_value")
+  )
+  .groupBy("deviecname", "interface", "time_window")
+  .agg(
+    max("max_value").as("max_value"),
+    min("min_value").as("min_value"),
+    (max("max_value") - min("min_value")).as("delta_value")
+  )
+
+// Define the query to output the results
+val query = selfJoinedDF.writeStream
+  .outputMode("append")
+  .format("your_output_format")
+  .option("your_output_options")
+  .trigger(Trigger.ProcessingTime("5 minutes"))
+  .start()
+
+// Start the streaming query
+query.awaitTermination()
