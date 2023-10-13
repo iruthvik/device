@@ -1,0 +1,80 @@
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.streaming.OutputMode
+import org.apache.spark.sql.streaming.GroupState
+
+// Initialize a Spark session
+val spark = SparkSession.builder.appName("5-Minute Rolling Delta Calculation").getOrCreate()
+
+// Define a case class to represent the state
+case class WindowState(
+  devicename: String,
+  interface: String,
+  max_in_octets: Long,
+  min_in_octets: Long,
+  start_time: Long,
+  end_time: Long
+)
+
+// Define a custom function to calculate delta and output the result
+def calculateDelta(
+    key: (String, String, Long), // Key representing device and interface
+    values: Iterator[(String, Long, Long, Long)],
+    state: GroupState[WindowState]
+): (String, String, String, Long, Long, Long) = {
+  val (devicename, interface, currentTimestamp, inOctets) = key
+  val groupedValues = values.toList.sortBy(_._2)
+
+  // Initialize or update the state
+  val newState = if (state.exists) {
+    val existingState = state.get
+    state.update(WindowState(devicename, interface, math.max(existingState.max_in_octets, inOctets),
+      math.min(existingState.min_in_octets, inOctets), existingState.start_time, currentTimestamp))
+  } else {
+    state.update(WindowState(devicename, interface, inOctets, inOctets, currentTimestamp, currentTimestamp))
+  }
+
+  // Check if we need to output a result for the current window
+  val result = if (currentTimestamp >= newState.end_time + 300000) { // 300000 ms is 5 minutes
+    val delta = newState.max_in_octets - newState.min_in_octets
+    newState.start_time = currentTimestamp
+    newState.end_time = currentTimestamp
+    newState.min_in_octets = inOctets
+    newState.max_in_octets = inOctets
+    (devicename, interface, newState.start_time.toString, newState.end_time.toString, delta)
+  } else {
+    (devicename, interface, "", "", 0L)
+  }
+
+  result
+}
+
+import spark.implicits._
+
+// Define a streaming DataFrame or load data from a streaming source
+val streamingDF = spark
+  .readStream
+  .format("your_streaming_source_format")
+  .option("your_streaming_source_options")
+  .load()
+  .withColumn("formatted_timestamp", col("timestamp").cast("timestamp")) // Cast to timestamp if not already
+  .select("devicename", "formatted_timestamp", "interface", "in_octets")
+  .as[(String, java.sql.Timestamp, String, Long)]
+  .withColumn("timestamp", $"formatted_timestamp".cast("long"))
+
+// Apply the custom function using flatMapGroupsWithState to calculate delta
+val resultDF: DataFrame = streamingDF
+  .groupByKey(row => (row._1, row._3, row._4), row => (row._1, row._2.getTime, row._4, row._3))
+  .flatMapGroupsWithState(OutputMode.Append(), GroupStateTimeout.ProcessingTimeTimeout())(calculateDelta)
+
+// Define the query to output the results
+val query = resultDF.writeStream
+  .outputMode("append")
+  .format("your_output_format")
+  .option("your_output_options")
+  .trigger(Trigger.ProcessingTime("5 minutes"))
+  .start()
+
+// Start the streaming query
+query.awaitTermination()
