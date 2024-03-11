@@ -1,0 +1,87 @@
+from google.cloud import bigquery
+from pulsar import Client, Message
+
+# Initialize BigQuery client
+bq_client = bigquery.Client()
+
+# Initialize Pulsar client
+pulsar_client = Client('pulsar+ssl://your-pulsar-broker-url', authentication='tls',
+                       tls_trust_certs_file_path='/path/to/trust.pem',
+                       tls_cert_file_path='/path/to/cert.pem',
+                       tls_key_file_path='/path/to/key.pem')
+
+# Maintain a set to keep track of previously published messages
+published_messages = set()
+
+# Retrieve data from counter_table and speed_table
+query_counter = """
+    SELECT *
+    FROM `counter_table`
+    ORDER BY timestamp DESC
+    LIMIT 1
+"""
+query_speed = """
+    SELECT *
+    FROM `speed_table`
+    ORDER BY timestamp DESC
+    LIMIT 1
+"""
+
+counter_data = list(bq_client.query(query_counter).result())
+speed_data = list(bq_client.query(query_speed).result())
+
+# Check if both tables have data
+if not counter_data or not speed_data:
+    print("No data found in one or both tables.")
+    exit()
+
+# Perform join operation
+joined_data = []
+for counter_row in counter_data:
+    for speed_row in speed_data:
+        if counter_row.devicename == speed_row.devicename and \
+           counter_row.interface == speed_row.interface and \
+           counter_row.timestamp == speed_row.timestamp:
+            joined_data.append({
+                'devicename': counter_row.devicename,
+                'interface': counter_row.interface,
+                'timestamp': counter_row.timestamp,
+                # Add other columns as needed
+            })
+            break
+
+# Print the number of records in each table
+print(f"Number of records in counter_table: {len(counter_data)}")
+print(f"Number of records in speed_table: {len(speed_data)}")
+
+# Print the number of records joined
+print(f"Number of records joined: {len(joined_data)}")
+
+# Check if joined data is empty
+if not joined_data:
+    print("No joined data available.")
+    exit()
+
+# Filter out previously published messages from joined data
+new_messages = []
+for message in joined_data:
+    if (message['devicename'], message['interface'], message['timestamp']) not in published_messages:
+        new_messages.append(message)
+
+# Print the number of cached records
+print(f"Number of cached records: {len(joined_data) - len(new_messages)}")
+
+# Simulate establishing connection with Pulsar producer
+print("Connection established with Pulsar producer.")
+
+# Simulate publishing messages
+for i, row in enumerate(new_messages):
+    print(f"Publishing message {i+1}: {row}")
+    # Simulate sending message to Pulsar topic
+    # (Replace this with actual Pulsar publish code if available)
+    print("Message published successfully.")
+    # Add published message to the set of published messages
+    published_messages.add((row['devicename'], row['interface'], row['timestamp']))
+
+# Print the number of published records
+print(f"Number of published records: {len(new_messages)}")
