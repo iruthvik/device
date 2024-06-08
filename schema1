@@ -1,0 +1,50 @@
+package com.verizon.npi.Schema
+
+import org.apache.spark.sql.types.{MapType, StringType, StructField, StructType}
+
+object InterfaceSchema {
+  val interfaceSchema: StructType=
+    StructType(Array(
+      StructField("system", StructType(Array(
+        StructField("metaData", StructType(Array(
+          StructField("ucgDeviceName", StringType,true),
+          StructField("ucgSource", StringType,true),
+          StructField("ucgType", StringType,true),
+        )),true),
+        StructField("perf", StructType(Array(
+          StructField("interfaces", StructType(Array(
+            StructField("interface", MapType(StringType, StructType(Array(
+              StructField("name", StringType, true),
+              StructField("state", StructType(Array(
+                StructField("counters", StructType(Array(
+                  StructField("in-octets", StringType, true),
+                  StructField("out-octets", StringType, true),
+                  StructField("in-pkts", StringType, true),
+                  StructField("out-pkts", StringType, true),
+                  StructField("in-multicast-pkts", StringType, true),
+                  StructField("out-multicast-pkts", StringType, true),
+                  StructField("in-unicast-pkts", StringType, true),
+                  StructField("out-unicast-pkts", StringType, true),
+                  StructField("in-discards", StringType, true),
+                  StructField("out-discards", StringType, true),
+                  StructField("in-errors", StringType, true),
+                  StructField("out-errors", StringType, true),
+                  StructField("in-broadcast-pkts", StringType, true),
+                  StructField("out-broadcast-pkts", StringType, true),
+                  StructField("carrier-transitions", StringType, true),
+                  StructField("in-fcs-errors", StringType, true),
+                  StructField("last-clear", StringType, true)
+
+                )),true),
+              )),true),
+
+            ))),true),
+
+          )),true),
+
+        )),true),
+        StructField("timestamp", StringType, true),
+
+      )),true),
+    ))
+}
