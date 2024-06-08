@@ -1,0 +1,158 @@
+package com.verizon.npi
+
+import org.apache.log4j.Logger
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.expressions.Window
+import com.verizon.npi.Schema.InterfaceSchema._
+
+
+object JuniperInterfaceBQTopic  {
+  @transient val logger: Logger = Logger.getLogger(getClass.getName)
+
+  def main(args: Array[String]): Unit = {
+
+
+    val spark = SparkSession.builder.appName("JuniperInterfaceBQTopic").getOrCreate
+    import spark.implicits._
+
+    val pulsarServiceUrl = args(0)
+    val JunipervmbTopic = args(1)
+    val checkPointInterface = args(2)
+    val ProjectID = args(3)
+    val datasetID = args(4)
+    val InterfacetableID = args(5)
+    val gcs_temp_bucket=args(6)
+    val vmb_output_topic=args(7)
+
+    //Print command line arguments
+
+    logger.info("[JuniperInterfaceBQTopic] JUNIPER Streaming about to start : Args Received : " + args.mkString("---"))
+    //check for number of args and accordingly proceed
+    if (args.length != 8) {
+      logger.error("[JuniperInterfaceBQTopic] INVALID SPARK SUBMIT COMMAND: Invalid number of args " + args.length)
+      System.exit(1)
+    }
+
+    /**
+     * Reading  from vmb topic
+     * we are using  TLS authentication to connect to topic
+     * and the delta will be calculated in the next block.
+     */
+    logger.info("Started reading the messages from topic ")
+    val df = spark.readStream
+      .format("pulsar")
+      .option("service.url", pulsarServiceUrl)
+      .option("pulsar.client.authPluginClassName", "org.apache.pulsar.client.impl.auth.AuthenticationTls")
+      .option("pulsar.client.authParams", "tlsCertFile:cert.pem,tlsKeyFile:key.pem")
+      .option("pulsar.client.tlsTrustCertsFilePath","trustcert.pem")
+      .option("pulsar.client.tlsAllowInsecureConnection","false")
+      .option("startingOffsets","latest")
+      .option("topic", JunipervmbTopic)
+      .option("predefinedSubscription","h6zv-juniper-interface")
+      .load()
+
+    def processDataWithSchema(inputDF: DataFrame, schema: StructType): DataFrame = {
+      val processedDF = inputDF.withColumn("valueString", $"value".cast("STRING"))
+                        .withColumn("value", from_json($"valueString", schema)).select("value.*")
+      return processedDF
+    }
+
+    val interfaceRawDF = processDataWithSchema(df,interfaceSchema)
+
+
+    val interfaceParser = interfaceRawDF.select($"system.metaData.*", col("system.perf.interfaces.interface").alias("interfaces"), col("system.timestamp")).alias("timestamp")
+      .select($"ucgDeviceName", $"timestamp", explode(col("interfaces")))
+      .select($"ucgDeviceName", $"timestamp", $"key", $"value.*")
+      .select($"ucgDeviceName", $"timestamp", $"name", $"state.counters.*")
+      .withColumn("formatted_timestamp",date_format(from_unixtime($"timestamp" / 1000), "yyyy-MM-dd HH:mm:00").cast("timestamp"))
+      .withColumnRenamed("name", "interface").withColumnRenamed("ucgDeviceName", "devicename")
+
+    logger.info("Interface parsing is completed , proceeding with schema alterations")
+
+    val replaceCols = interfaceParser.columns.map(_.replaceAll("-","_"))
+    val replacedDF = interfaceParser.toDF(replaceCols:_*)
+
+    val ColumnsToCast = replacedDF.columns.filterNot(colName => colName == "devicename" || colName == "formatted_timestamp" || colName == "interface" || colName == "carrier_transitions")
+    val castDF = ColumnsToCast.foldLeft(replacedDF) {
+      (tempDF, colName) => tempDF.withColumn(colName, when(col(colName).isNotNull, col(colName).cast(LongType)))
+    }
+    logger.info("Filtering data with in_octets only ")
+
+    val filterDF = castDF.filter(col("in_octets").isNotNull)
+
+    logger.info("defined a 5 min window to calculate max values")
+
+    def calculateDelta(df: org.apache.spark.sql.DataFrame, columns: List[String]): DataFrame = {
+
+      val maxColumnsExpr = columns.map(colName => expr(s"max($colName) as max_$colName"))
+      val minColumnsExpr = columns.map(colName => expr(s"min($colName) as min_$colName"))
+      val allColumnsExperr = maxColumnsExpr ++ minColumnsExpr
+
+      val aggregatedDF = df.withWatermark("formatted_timestamp", "6 minutes") // add a water mark duration to hold previous values
+        .groupBy(window(col("formatted_timestamp"), "301 seconds", "5 minutes").alias("period"), col("devicename"), col("interface"))
+        .agg(allColumnsExperr.head, allColumnsExperr.tail: _*)
+
+      val deltaColumns = columns :+ "period" // Including  for delta time
+
+      val deltaDF = deltaColumns.foldLeft(aggregatedDF) { (df, colName) =>
+        val deltaColumn = col(s"max_$colName") - col(s"min_$colName")
+        if (colName == "period") {
+          df.withColumn("delta_time", expr("unix_timestamp(period.end) - unix_timestamp(period.start)"))
+        } else {
+          df.withColumn(s"delta_$colName", deltaColumn)
+        }
+      }
+      deltaDF
+    }
+
+    val deltaDF = calculateDelta(filterDF, List("in_octets", "out_octets", "in_pkts", "out_pkts", "in_multicast_pkts", "out_multicast_pkts", "in_unicast_pkts",
+      "out_unicast_pkts", "in_discards", "out_discards", "in_errors", "out_errors", "in_broadcast_pkts", "out_broadcast_pkts", "in_fcs_errors", "carrier_transitions", "last_clear", "timestamp"))
+
+    val outputDF = deltaDF.withColumn("recordtype", lit("juniper_inf"))
+      .withColumn("delta_time_ms", col("delta_timestamp").cast("long"))
+      .withColumn("timestamp",date_format(from_unixtime($"min_timestamp" / 1000), "yyyy-MM-dd HH:mm:00").cast("timestamp"))
+      .withColumn("start_epochtime", col("min_timestamp"))
+      .withColumn("end_epochtime", col("max_timestamp")).withColumn("subinterface", lit("null"))
+      .selectExpr("recordtype", "timestamp", "start_epochtime", "end_epochtime", "delta_time_ms",
+        "devicename", "interface", "subinterface", "delta_in_octets as in_octets", "delta_in_pkts as in_pkts", "delta_in_multicast_pkts as in_multicast_pkts",
+        "delta_in_unicast_pkts as in_unicast_pkts", "delta_in_discards as in_discards", "delta_in_errors as in_errors",
+        "delta_in_broadcast_pkts as in_broadcast_pkts",
+        "delta_out_octets as out_octets", "delta_out_pkts as out_pkts", "delta_out_multicast_pkts as out_multicast_pkts", "max_in_fcs_errors as in_fcs_errors",
+        "delta_out_unicast_pkts as out_unicast_pkts", "delta_out_discards as out_discards", "delta_out_errors as out_errors", "delta_out_broadcast_pkts as out_broadcast_pkts",
+        "max_last_clear as last_clear", "max_carrier_transitions as carrier_transitions")
+
+    logger.info("writing the final output to BQ table " + InterfacetableID + "and also to the output topic" + vmb_output_topic)
+
+    val writeSinks = outputDF.writeStream.foreachBatch {(batchDF:org.apache.spark.sql.DataFrame, batchId:Long) =>
+        batchDF
+          .write.format("bigquery").mode("append")
+          .option("temporaryGcsBucket",gcs_temp_bucket)
+          .option("table", s"$ProjectID.$datasetID.$InterfacetableID")
+          .mode("append")
+          .save()
+
+        batchDF.toJSON.select(col("value").cast("binary"))
+          .write.format("pulsar")
+          .option("topic", vmb_output_topic)
+          .option("service.url", pulsarServiceUrl)
+          .option("pulsar.client.authPluginClassName", "org.apache.pulsar.client.impl.auth.AuthenticationTls")
+          .option("pulsar.client.authParams", "tlsCertFile:cert.pem,tlsKeyFile:key.pem")
+          .option("pulsar.client.tlsTrustCertsFilePath", "trustcert.pem")
+          .option("pulsar.client.tlsAllowInsecureConnection", "false")
+          .save()
+      }
+        .outputMode("append")
+        .trigger(Trigger.ProcessingTime("2 minutes"))
+        .queryName("JuniperInterface")
+        .option("checkpointLocation", checkPointInterface)
+        .start()
+
+    writeSinks.awaitTermination()
+
+  }
+}
+
+
