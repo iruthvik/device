@@ -1,0 +1,72 @@
+import apache_beam as beam
+from apache_beam.io import ReadFromText, WriteToBigQuery, WriteToPubSub
+from apache_beam.io.gcp.bigquery import BigQueryDisposition, BigQuerySchema
+
+# Define schema for BigQuery table (replace with actual schema)
+schema = BigQuerySchema({
+  "recordtype": "STRING",
+  "timestamp": "DATETIME",
+  # ... other fields and their types
+})
+
+with beam.Pipeline() as pipeline:
+  # Read data from Pulsar topic with TLS authentication (replace details)
+  pulsar_url = "..."
+  pulsar_topic = "..."
+  tls_cert_file = "..."
+  tls_key_file = "..."
+  tls_trust_cert_file = "..."
+
+  messages = pipeline | 'ReadPulsar' >> ReadFromText(
+      source=beam.io.pulsar.PulsarSource(
+          service_url=pulsar_url,
+          topic=pulsar_topic,
+          pulsar_client_authentication_plugin_class_name="org.apache.pulsar.client.impl.auth.AuthenticationTls",
+          pulsar_client_auth_params="tlsCertFile:{},tlsKeyFile:{}".format(tls_cert_file, tls_key_file),
+          pulsar_client_tls_trust_certs_file_path=tls_trust_cert_file,
+          pulsar_client_tls_allow_insecure_connection=False
+      )
+  )
+
+  # Parse JSON data using a custom DoFn (replace with your parsing logic)
+  def parse_json(message):
+    # ... implementation to parse JSON and extract relevant fields
+    return parsed_data
+
+  parsed_data = messages | 'ParseJson' >> beam.Map(parse_json)
+
+  # Define window size and calculate deltas (replace with your logic)
+  window_size = 5 * 60  # 5 minutes in seconds
+
+  def calculate_deltas(data):
+    # ... implementation to calculate deltas for desired fields
+    return data
+
+  with_deltas = parsed_data | 'WindowAndDelta' >> beam.WindowInto(beam.window.SlidingWindows(window_size=window_size, offset=60)) >> beam.CombinePerKey(calculate_deltas)
+
+  # Prepare final output data (replace with actual field names)
+  output_data = with_deltas | 'PrepareOutput' >> beam.Map(lambda x: {
+      "recordtype": "juniper_inf",
+      "timestamp": x["timestamp"],
+      # ... other fields with calculated deltas
+  })
+
+  # Write to BigQuery table
+  bigquery_table = "..."
+  temporary_gcs_bucket = "..."
+
+  output_data | 'WriteToBigQuery' >> WriteToBigQuery(
+      table=bigquery_table,
+      schema=schema,
+      create_disposition=BigQueryDisposition.CREATE_IF_NEEDED,
+      write_disposition=BigQueryDisposition.WRITE_APPEND,
+      temporary_gcs_bucket=temporary_gcs_bucket
+  )
+
+  # Write to Pulsar topic (optional, replace details)
+  output_topic = "..."
+
+  output_data | 'WriteToPubSub' >> WriteToPubSub(
+      topic=output_topic,
+      with_schema=False
+  )
