@@ -33,31 +33,37 @@ class ParseJson(beam.DoFn):
             
             for interface_name, interface_data in interfaces.items():
                 state_counters = interface_data.get('state', {}).get('counters', {})
+                logging.info(f"Processing state_counters for interface {interface_name}: {state_counters}")
+                
+                # Create a function to get the value or return 0 if not present
+                def get_value(counters, key):
+                    return counters.get(key, 0) if counters.get(key) is not None else 0
+                
                 parsed_record = {
                     'ucgDeviceName': ucg_device_name,
                     'ucgSource': ucg_source,
                     'ucgType': ucg_type,
                     'timestamp': timestamp,
                     'interface': interface_name,
-                    'in_broadcast_pkts': state_counters.get('in-broadcast-pkts', 0),
-                    'in_discards': state_counters.get('in-discards', 0),
-                    'in_errors': state_counters.get('in-errors', 0),
-                    'in_fcs_errors': state_counters.get('in-fcs-errors', 0),
-                    'in_multicast_pkts': state_counters.get('in-multicast-pkts', 0),
-                    'in_octets': state_counters.get('in-octets', 0),
-                    'in_pause_pkts': state_counters.get('in-pause-pkts', 0),
-                    'in_pkts': state_counters.get('in-pkts', 0),
-                    'in_unicast_pkts': state_counters.get('in-unicast-pkts', 0),
-                    'in_unknown_protos': state_counters.get('in-unknown-protos', 0),
-                    'out_broadcast_pkts': state_counters.get('out-broadcast-pkts', 0),
-                    'out_discards': state_counters.get('out-discards', 0),
-                    'out_errors': state_counters.get('out-errors', 0),
-                    'out_multicast_pkts': state_counters.get('out-multicast-pkts', 0),
-                    'out_octets': state_counters.get('out-octets', 0),
-                    'out_pause_pkts': state_counters.get('out-pause-pkts', 0),
-                    'out_pkts': state_counters.get('out-pkts', 0),
-                    'out_unicast_pkts': state_counters.get('out-unicast-pkts', 0),
-                    'out_unknown_protos': state_counters.get('out-unknown-protos', 0)
+                    'in_broadcast_pkts': get_value(state_counters, 'in-broadcast-pkts'),
+                    'in_discards': get_value(state_counters, 'in-discards'),
+                    'in_errors': get_value(state_counters, 'in-errors'),
+                    'in_fcs_errors': get_value(state_counters, 'in-fcs-errors'),
+                    'in_multicast_pkts': get_value(state_counters, 'in-multicast-pkts'),
+                    'in_octets': get_value(state_counters, 'in-octets'),
+                    'in_pause_pkts': get_value(state_counters, 'in-pause-pkts'),
+                    'in_pkts': get_value(state_counters, 'in-pkts'),
+                    'in_unicast_pkts': get_value(state_counters, 'in-unicast-pkts'),
+                    'in_unknown_protos': get_value(state_counters, 'in-unknown-protos'),
+                    'out_broadcast_pkts': get_value(state_counters, 'out-broadcast-pkts'),
+                    'out_discards': get_value(state_counters, 'out-discards'),
+                    'out_errors': get_value(state_counters, 'out-errors'),
+                    'out_multicast_pkts': get_value(state_counters, 'out-multicast-pkts'),
+                    'out_octets': get_value(state_counters, 'out-octets'),
+                    'out_pause_pkts': get_value(state_counters, 'out-pause-pkts'),
+                    'out_pkts': get_value(state_counters, 'out-pkts'),
+                    'out_unicast_pkts': get_value(state_counters, 'out-unicast-pkts'),
+                    'out_unknown_protos': get_value(state_counters, 'out-unknown-protos')
                 }
                 parsed_records.append(parsed_record)
 
