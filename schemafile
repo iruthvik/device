@@ -1,0 +1,43 @@
+{
+    "ucgDeviceName": "CHCGILCP-TPC1-AC",
+    "ucgJsonData": {
+        "interfaces": {
+            "interface": {
+                "et-0/0/3": {
+                    "name": "et-0/0/3",
+                    "state": {
+                        "counters": {
+                            "in-broadcast-pkts": 0,
+                            "in-discards": 0,
+                            "in-errors": 0,
+                            "in-fcs-errors": 0,
+                            "in-multicast-pkts": 0,
+                            "in-octets": 0,
+                            "in-pause-pkts": 0,
+                            "in-pkts": 0,
+                            "in-unicast-pkts": 0,
+                            "in-unknown-protos": 0,
+                            "out-broadcast-pkts": 0,
+                            "out-discards": 0,
+                            "out-errors": 0,
+                            "out-multicast-pkts": 0,
+                            "out-octets": 0,
+                            "out-pause-pkts": 0,
+                            "out-pkts": 0,
+                            "out-unicast-pkts": 0,
+                            "out-unknown-protos": 0
+                        }
+                    }
+                }
+            }
+        },
+        "timestamp": 1716563270797799700
+    },
+    "ucgMessage": "No Error msg available",
+    "ucgSequenceNum": "25",
+    "ucgSource": "PERF_JUNIPER_PTX",
+    "ucgTimestamp": "2024-05-24T15:07:51Z",
+    "ucgTopic": "persistent://enmv/gnmi-perf-juniper/grpc-ucs-ngpc",
+    "ucgType": "PERF",
+    "ucgYangTopic": "persistent://enmv/gnmi-perf-juniper/grpc-yang-ngpc"
+}
