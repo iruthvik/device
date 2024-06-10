@@ -32,13 +32,13 @@ class ParseJson(beam.DoFn):
             interfaces = record['ucgJsonData']['interfaces']['interface']
             
             for interface_name, interface_data in interfaces.items():
+                # Process main interface counters
                 state_counters = interface_data.get('state', {}).get('counters', {})
-                logging.info(f"Processing state_counters for interface {interface_name}: {state_counters}")
                 
-                # Create a function to get the value or return 0 if not present
                 def get_value(counters, key):
                     return counters.get(key, 0) if counters.get(key) is not None else 0
                 
+                # Process main interface
                 parsed_record = {
                     'ucgDeviceName': ucg_device_name,
                     'ucgSource': ucg_source,
@@ -63,9 +63,44 @@ class ParseJson(beam.DoFn):
                     'out_pause_pkts': get_value(state_counters, 'out-pause-pkts'),
                     'out_pkts': get_value(state_counters, 'out-pkts'),
                     'out_unicast_pkts': get_value(state_counters, 'out-unicast-pkts'),
-                    'out_unknown_protos': get_value(state_counters, 'out-unknown-protos')
+                    'out_unknown_protos': get_value(state_counters, 'out-unknown-protos'),
+                    'subinterface': 'none'
                 }
                 parsed_records.append(parsed_record)
+
+                # Process subinterfaces if they exist
+                if 'subinterfaces' in interface_data:
+                    subinterfaces = interface_data['subinterfaces']['subinterface']
+                    for subinterface_name, subinterface_data in subinterfaces.items():
+                        sub_state_counters = subinterface_data.get('state', {}).get('counters', {})
+                        parsed_sub_record = {
+                            'ucgDeviceName': ucg_device_name,
+                            'ucgSource': ucg_source,
+                            'ucgType': ucg_type,
+                            'timestamp': timestamp,
+                            'interface': interface_name,
+                            'in_broadcast_pkts': get_value(sub_state_counters, 'in-broadcast-pkts'),
+                            'in_discards': get_value(sub_state_counters, 'in-discards'),
+                            'in_errors': get_value(sub_state_counters, 'in-errors'),
+                            'in_fcs_errors': get_value(sub_state_counters, 'in-fcs-errors'),
+                            'in_multicast_pkts': get_value(sub_state_counters, 'in-multicast-pkts'),
+                            'in_octets': get_value(sub_state_counters, 'in-octets'),
+                            'in_pause_pkts': get_value(sub_state_counters, 'in-pause-pkts'),
+                            'in_pkts': get_value(sub_state_counters, 'in-pkts'),
+                            'in_unicast_pkts': get_value(sub_state_counters, 'in-unicast-pkts'),
+                            'in_unknown_protos': get_value(sub_state_counters, 'in-unknown-protos'),
+                            'out_broadcast_pkts': get_value(sub_state_counters, 'out-broadcast-pkts'),
+                            'out_discards': get_value(sub_state_counters, 'out-discards'),
+                            'out_errors': get_value(sub_state_counters, 'out-errors'),
+                            'out_multicast_pkts': get_value(sub_state_counters, 'out-multicast-pkts'),
+                            'out_octets': get_value(sub_state_counters, 'out-octets'),
+                            'out_pause_pkts': get_value(sub_state_counters, 'out-pause-pkts'),
+                            'out_pkts': get_value(sub_state_counters, 'out-pkts'),
+                            'out_unicast_pkts': get_value(sub_state_counters, 'out-unicast-pkts'),
+                            'out_unknown_protos': get_value(sub_state_counters, 'out-unknown-protos'),
+                            'subinterface': subinterface_name
+                        }
+                        parsed_records.append(parsed_sub_record)
 
             return parsed_records
         except Exception as e:
