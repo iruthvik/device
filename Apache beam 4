@@ -1,0 +1,69 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+import json
+import logging
+
+class ParseJson(beam.DoFn):
+    def process(self, element):
+        try:
+            record = json.loads(element)
+            
+            if 'ucgDeviceName' not in record or 'ucgJsonData' not in record:
+                logging.error("Missing expected fields in record: %s", record)
+                return
+            
+            ucg_device_name = record.get('ucgDeviceName')
+            ucg_source = record.get('ucgSource', '')
+            ucg_type = record.get('ucgType', '')
+            timestamp = int(record['ucgJsonData'].get('timestamp', 0))
+            
+            if 'interfaces' not in record['ucgJsonData']:
+                logging.error("Missing 'interfaces' in 'ucgJsonData': %s", record)
+                return
+            
+            interfaces = record['ucgJsonData']['interfaces'].get('interface', {})
+            parsed_records = []
+
+            for interface_name, interface_data in interfaces.items():
+                state_counters = interface_data.get('state', {}).get('counters', {})
+                parsed_record = {
+                    'ucgDeviceName': ucg_device_name,
+                    'ucgSource': ucg_source,
+                    'ucgType': ucg_type,
+                    'timestamp': timestamp,
+                    'interface': interface_name,
+                    'in_broadcast_pkts': state_counters.get('in-broadcast-pkts', 0),
+                    'in_discards': state_counters.get('in-discards', 0),
+                    'in_errors': state_counters.get('in-errors', 0),
+                    'in_fcs_errors': state_counters.get('in-fcs-errors', 0),
+                    'in_multicast_pkts': state_counters.get('in-multicast-pkts', 0),
+                    'in_octets': state_counters.get('in-octets', 0),
+                    'in_pause_pkts': state_counters.get('in-pause-pkts', 0),
+                    'in_pkts': state_counters.get('in-pkts', 0),
+                    'in_unicast_pkts': state_counters.get('in-unicast-pkts', 0),
+                    'in_unknown_protos': state_counters.get('in-unknown-protos', 0),
+                    'out_broadcast_pkts': state_counters.get('out-broadcast-pkts', 0),
+                    'out_discards': state_counters.get('out-discards', 0),
+                    'out_errors': state_counters.get('out-errors', 0),
+                    'out_multicast_pkts': state_counters.get('out-multicast-pkts', 0),
+                    'out_octets': state_counters.get('out-octets', 0),
+                    'out_pause_pkts': state_counters.get('out-pause-pkts', 0),
+                    'out_pkts': state_counters.get('out-pkts', 0),
+                    'out_unicast_pkts': state_counters.get('out-unicast-pkts', 0),
+                    'out_unknown_protos': state_counters.get('out-unknown-protos', 0)
+                }
+                parsed_records.append(parsed_record)
+
+            return parsed_records
+        except Exception as e:
+            logging.error("Error processing record: %s", e)
+            return []
+
+class FormatJson(beam.DoFn):
+    def process(self, element):
+        formatted_record = json.dumps(element)
+        yield formatted_record
+
+def run():
+    input_file = 'gs://<your-input-bucket>/<your-input-file>.json'
+    output_file = 'gs://<your-output
