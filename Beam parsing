@@ -1,0 +1,41 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+import json
+
+class ParseJson(beam.DoFn):
+    def process(self, element):
+        record = json.loads(element)
+        parsed_record = {
+            'ucgDeviceName': record['system']['metaData']['ucgDeviceName'],
+            'ucgSource': record['system']['metaData']['ucgSource'],
+            'ucgType': record['system']['metaData']['ucgType'],
+            'interfaces': record['system']['perf']['interfaces']['interface'],
+            'timestamp': int(record['system']['timestamp'])
+        }
+        return [parsed_record]
+
+class FormatJson(beam.DoFn):
+    def process(self, element):
+        formatted_record = json.dumps(element)
+        return [formatted_record]
+
+def run():
+    input_file = 'gs://<your-input-bucket>/<your-input-file>.json'
+    output_file = 'gs://<your-output-bucket>/<your-output-file>.json'
+
+    pipeline_options = PipelineOptions()
+    p = beam.Pipeline(options=pipeline_options)
+
+    (
+        p
+        | 'ReadFromGCS' >> beam.io.ReadFromText(input_file)
+        | 'ParseJson' >> beam.ParDo(ParseJson())
+        | 'FormatJson' >> beam.ParDo(FormatJson())
+        | 'WriteToGCS' >> beam.io.WriteToText(output_file, file_name_suffix='.json')
+    )
+
+    result = p.run()
+    result.wait_until_finish()
+
+if __name__ == '__main__':
+    run()
