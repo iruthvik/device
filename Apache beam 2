@@ -1,0 +1,98 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
+from google.cloud import bigquery
+import pulsar
+import json
+import pyarrow as pa
+from apache_beam.io.gcp.bigquery import WriteToBigQuery
+from apache_beam.transforms.window import FixedWindows
+
+# Define schema for BigQuery
+schema = {
+    'fields': [
+        {'name': 'recordtype', 'type': 'STRING', 'mode': 'NULLABLE'},
+        {'name': 'timestamp', 'type': 'TIMESTAMP', 'mode': 'NULLABLE'},
+        {'name': 'start_epochtime', 'type': 'INT64', 'mode': 'NULLABLE'},
+        {'name': 'end_epochtime', 'type': 'INT64', 'mode': 'NULLABLE'},
+        {'name': 'delta_time_ms', 'type': 'INT64', 'mode': 'NULLABLE'},
+        {'name': 'devicename', 'type': 'STRING', 'mode': 'NULLABLE'},
+        {'name': 'interface', 'type': 'STRING', 'mode': 'NULLABLE'},
+        {'name': 'subinterface', 'type': 'STRING', 'mode': 'NULLABLE'},
+        # Add all other fields here...
+    ]
+}
+
+def parse_json(record):
+    record = json.loads(record)
+    return {
+        'ucgDeviceName': record['system']['metaData']['ucgDeviceName'],
+        'timestamp': int(record['system']['timestamp']),
+        'interfaces': record['system']['perf']['interfaces']['interface'],
+    }
+
+def calculate_deltas(records):
+    # Implement delta calculations here
+    pass
+
+def format_for_bigquery(record):
+    return {
+        'recordtype': 'juniper_inf',
+        'timestamp': record['timestamp'],
+        'start_epochtime': record['start_epochtime'],
+        'end_epochtime': record['end_epochtime'],
+        'delta_time_ms': record['delta_time_ms'],
+        'devicename': record['devicename'],
+        'interface': record['interface'],
+        'subinterface': 'null',
+        # Map other fields...
+    }
+
+def run():
+    options = PipelineOptions()
+    options.view_as(StandardOptions).streaming = True
+    p = beam.Pipeline(options=options)
+
+    pulsar_service_url = 'pulsar://<PULSAR_URL>:6650'
+    topic = 'persistent://<TENANT>/<NAMESPACE>/<TOPIC>'
+    project_id = '<GCP_PROJECT_ID>'
+    dataset_id = '<BQ_DATASET_ID>'
+    table_id = '<BQ_TABLE_ID>'
+
+    def pulsar_source():
+        client = pulsar.Client(pulsar_service_url)
+        consumer = client.subscribe(topic, subscription_name='juniper-interface', consumer_type=pulsar.ConsumerType.Shared)
+        while True:
+            msg = consumer.receive()
+            yield msg.data()
+            consumer.acknowledge(msg)
+        client.close()
+
+    raw_data = p | 'ReadFromPulsar' >> beam.io.Read(pulsar_source)
+    
+    parsed_data = (
+        raw_data
+        | 'ParseJSON' >> beam.Map(parse_json)
+    )
+
+    deltas = (
+        parsed_data
+        | 'WindowInto' >> beam.WindowInto(FixedWindows(5 * 60))  # 5 minutes
+        | 'CalculateDeltas' >> beam.Map(calculate_deltas)
+    )
+
+    formatted_data = (
+        deltas
+        | 'FormatForBigQuery' >> beam.Map(format_for_bigquery)
+    )
+
+    formatted_data | 'WriteToBigQuery' >> WriteToBigQuery(
+        table=f'{project_id}:{dataset_id}.{table_id}',
+        schema=schema,
+        write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND
+    )
+
+    result = p.run()
+    result.wait_until_finish()
+
+if __name__ == '__main__':
+    run()
