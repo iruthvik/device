@@ -3,27 +3,34 @@ from apache_beam.options.pipeline_options import PipelineOptions
 import json
 import logging
 
-class ParseJson(beam.DoFn):
+class ValidateAndFilterJson(beam.DoFn):
     def process(self, element):
         try:
             record = json.loads(element)
             
-            if 'ucgDeviceName' not in record or 'ucgJsonData' not in record:
-                logging.error("Missing expected fields in record: %s", record)
-                return
+            # Check if the record contains the necessary fields
+            if 'ucgDeviceName' in record and 'ucgJsonData' in record:
+                ucg_json_data = record['ucgJsonData']
+                if 'interfaces' in ucg_json_data and 'interface' in ucg_json_data['interfaces']:
+                    yield element
+            else:
+                logging.warning("Filtered out record without expected schema: %s", record)
+        except json.JSONDecodeError:
+            logging.error("Failed to decode JSON: %s", element)
+
+class ParseJson(beam.DoFn):
+    def process(self, element):
+        try:
+            record = json.loads(element)
+            parsed_records = []
             
             ucg_device_name = record.get('ucgDeviceName')
             ucg_source = record.get('ucgSource', '')
             ucg_type = record.get('ucgType', '')
             timestamp = int(record['ucgJsonData'].get('timestamp', 0))
-            
-            if 'interfaces' not in record['ucgJsonData']:
-                logging.error("Missing 'interfaces' in 'ucgJsonData': %s", record)
-                return
-            
-            interfaces = record['ucgJsonData']['interfaces'].get('interface', {})
-            parsed_records = []
 
+            interfaces = record['ucgJsonData']['interfaces']['interface']
+            
             for interface_name, interface_data in interfaces.items():
                 state_counters = interface_data.get('state', {}).get('counters', {})
                 parsed_record = {
@@ -66,4 +73,22 @@ class FormatJson(beam.DoFn):
 
 def run():
     input_file = 'gs://<your-input-bucket>/<your-input-file>.json'
-    output_file = 'gs://<your-output
+    output_file = 'gs://<your-output-bucket>/<your-output-file>'
+
+    pipeline_options = PipelineOptions()
+    p = beam.Pipeline(options=pipeline_options)
+
+    (
+        p
+        | 'ReadFromGCS' >> beam.io.ReadFromText(input_file)
+        | 'ValidateAndFilterJson' >> beam.ParDo(ValidateAndFilterJson())
+        | 'ParseJson' >> beam.ParDo(ParseJson())
+        | 'FormatJson' >> beam.ParDo(FormatJson())
+        | 'WriteToGCS' >> beam.io.WriteToText(output_file, file_name_suffix='.json')
+    )
+
+    result = p.run()
+    result.wait_until_finish()
+
+if __name__ == '__main__':
+    run()
