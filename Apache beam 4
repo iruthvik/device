@@ -1,5 +1,5 @@
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
 import json
 import logging
 
@@ -113,15 +113,32 @@ class FormatJson(beam.DoFn):
         yield formatted_record
 
 def run():
-    input_file = 'gs://<your-input-bucket>/<your-input-file>.json'
+    pulsar_service_url = 'pulsar://your-pulsar-service-url:6650'
+    pulsar_topic = 'your-pulsar-topic'
+    tls_cert_file = 'path/to/cert.pem'
+    tls_key_file = 'path/to/key.pem'
+    tls_trust_cert_file = 'path/to/trustcert.pem'
     output_file = 'gs://<your-output-bucket>/<your-output-file>'
-
+    
     pipeline_options = PipelineOptions()
+    pipeline_options.view_as(StandardOptions).streaming = True
+
     p = beam.Pipeline(options=pipeline_options)
 
     (
         p
-        | 'ReadFromGCS' >> beam.io.ReadFromText(input_file)
+        | 'ReadFromPulsar' >> beam.io.ReadFromPulsar(
+            service_url=pulsar_service_url,
+            topic=pulsar_topic,
+            auth_plugin_class_name='org.apache.pulsar.client.impl.auth.AuthenticationTls',
+            auth_params={
+                'tlsCertFile': tls_cert_file,
+                'tlsKeyFile': tls_key_file
+            },
+            tls_trust_certs_file_path=tls_trust_cert_file,
+            tls_allow_insecure_connection=False,
+            subscription='your-subscription-name'
+        )
         | 'ValidateAndFilterJson' >> beam.ParDo(ValidateAndFilterJson())
         | 'ParseJson' >> beam.ParDo(ParseJson())
         | 'FormatJson' >> beam.ParDo(FormatJson())
