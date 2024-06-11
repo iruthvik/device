@@ -1,0 +1,170 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
+import json
+import logging
+import pulsar
+from pulsar import AuthenticationTls
+import time
+
+class ValidateAndFilterJson(beam.DoFn):
+    def process(self, element):
+        try:
+            record = json.loads(element)
+            
+            # Check if the record contains the necessary fields
+            if 'ucgDeviceName' in record and 'ucgJsonData' in record:
+                ucg_json_data = record['ucgJsonData']
+                if 'interfaces' in ucg_json_data and 'interface' in ucg_json_data['interfaces']:
+                    yield element
+            else:
+                logging.warning("Filtered out record without expected schema: %s", record)
+        except json.JSONDecodeError:
+            logging.error("Failed to decode JSON: %s", element)
+
+class ParseJson(beam.DoFn):
+    def process(self, element):
+        try:
+            record = json.loads(element)
+            parsed_records = []
+            
+            ucg_device_name = record.get('ucgDeviceName')
+            ucg_source = record.get('ucgSource', '')
+            ucg_type = record.get('ucgType', '')
+            timestamp = int(record['ucgJsonData'].get('timestamp', 0))
+
+            interfaces = record['ucgJsonData']['interfaces']['interface']
+            
+            for interface_name, interface_data in interfaces.items():
+                # Process main interface counters
+                state_counters = interface_data.get('state', {}).get('counters', {})
+                
+                def get_value(counters, key):
+                    return counters.get(key, 0) if counters.get(key) is not None else 0
+                
+                # Process main interface
+                parsed_record = {
+                    'ucgDeviceName': ucg_device_name,
+                    'ucgSource': ucg_source,
+                    'ucgType': ucg_type,
+                    'timestamp': timestamp,
+                    'interface': interface_name,
+                    'in_broadcast_pkts': get_value(state_counters, 'in-broadcast-pkts'),
+                    'in_discards': get_value(state_counters, 'in-discards'),
+                    'in_errors': get_value(state_counters, 'in-errors'),
+                    'in_fcs_errors': get_value(state_counters, 'in-fcs-errors'),
+                    'in_multicast_pkts': get_value(state_counters, 'in-multicast-pkts'),
+                    'in_octets': get_value(state_counters, 'in-octets'),
+                    'in_pause_pkts': get_value(state_counters, 'in-pause-pkts'),
+                    'in_pkts': get_value(state_counters, 'in-pkts'),
+                    'in_unicast_pkts': get_value(state_counters, 'in-unicast-pkts'),
+                    'in_unknown_protos': get_value(state_counters, 'in-unknown-protos'),
+                    'out_broadcast_pkts': get_value(state_counters, 'out-broadcast-pkts'),
+                    'out_discards': get_value(state_counters, 'out-discards'),
+                    'out_errors': get_value(state_counters, 'out-errors'),
+                    'out_multicast_pkts': get_value(state_counters, 'out-multicast-pkts'),
+                    'out_octets': get_value(state_counters, 'out-octets'),
+                    'out_pause_pkts': get_value(state_counters, 'out-pause-pkts'),
+                    'out_pkts': get_value(state_counters, 'out-pkts'),
+                    'out_unicast_pkts': get_value(state_counters, 'out-unicast-pkts'),
+                    'out_unknown_protos': get_value(state_counters, 'out-unknown-protos'),
+                    'subinterface': 'none'
+                }
+                parsed_records.append(parsed_record)
+
+                # Process subinterfaces if they exist
+                if 'subinterfaces' in interface_data:
+                    subinterfaces = interface_data['subinterfaces']['subinterface']
+                    for subinterface_name, subinterface_data in subinterfaces.items():
+                        sub_state_counters = subinterface_data.get('state', {}).get('counters', {})
+                        parsed_sub_record = {
+                            'ucgDeviceName': ucg_device_name,
+                            'ucgSource': ucg_source,
+                            'ucgType': ucg_type,
+                            'timestamp': timestamp,
+                            'interface': interface_name,
+                            'in_broadcast_pkts': get_value(sub_state_counters, 'in-broadcast-pkts'),
+                            'in_discards': get_value(sub_state_counters, 'in-discards'),
+                            'in_errors': get_value(sub_state_counters, 'in-errors'),
+                            'in_fcs_errors': get_value(sub_state_counters, 'in-fcs-errors'),
+                            'in_multicast_pkts': get_value(sub_state_counters, 'in-multicast-pkts'),
+                            'in_octets': get_value(sub_state_counters, 'in-octets'),
+                            'in_pause_pkts': get_value(sub_state_counters, 'in-pause-pkts'),
+                            'in_pkts': get_value(sub_state_counters, 'in-pkts'),
+                            'in_unicast_pkts': get_value(sub_state_counters, 'in-unicast-pkts'),
+                            'in_unknown_protos': get_value(sub_state_counters, 'in-unknown-protos'),
+                            'out_broadcast_pkts': get_value(sub_state_counters, 'out-broadcast-pkts'),
+                            'out_discards': get_value(sub_state_counters, 'out-discards'),
+                            'out_errors': get_value(sub_state_counters, 'out-errors'),
+                            'out_multicast_pkts': get_value(sub_state_counters, 'out-multicast-pkts'),
+                            'out_octets': get_value(sub_state_counters, 'out-octets'),
+                            'out_pause_pkts': get_value(sub_state_counters, 'out-pause-pkts'),
+                            'out_pkts': get_value(sub_state_counters, 'out-pkts'),
+                            'out_unicast_pkts': get_value(sub_state_counters, 'out-unicast-pkts'),
+                            'out_unknown_protos': get_value(sub_state_counters, 'out-unknown-protos'),
+                            'subinterface': subinterface_name
+                        }
+                        parsed_records.append(parsed_sub_record)
+
+            return parsed_records
+        except Exception as e:
+            logging.error("Error processing record: %s", e)
+            return []
+
+class FormatJson(beam.DoFn):
+    def process(self, element):
+        formatted_record = json.dumps(element)
+        yield formatted_record
+
+def read_from_pulsar(pulsar_service_url, topic, tls_cert_file, tls_key_file, tls_trust_cert_file, subscription_name):
+    client = pulsar.Client(
+        pulsar_service_url,
+        authentication=AuthenticationTls(
+            tls_cert_file,
+            tls_key_file,
+            tls_trust_cert_file
+        ),
+        tls_trust_certs_file_path=tls_trust_cert_file,
+        tls_allow_insecure_connection=False
+    )
+    consumer = client.subscribe(topic, subscription_name, consumer_type=pulsar.ConsumerType.Shared)
+
+    try:
+        while True:
+            msg = consumer.receive()
+            yield msg.data().decode('utf-8')
+            consumer.acknowledge(msg)
+    except Exception as e:
+        logging.error("Error reading from Pulsar: %s", e)
+    finally:
+        consumer.close()
+        client.close()
+
+def run():
+    pulsar_service_url = 'pulsar://your-pulsar-service-url:6650'
+    pulsar_topic = 'your-pulsar-topic'
+    tls_cert_file = 'path/to/cert.pem'
+    tls_key_file = 'path/to/key.pem'
+    tls_trust_cert_file = 'path/to/trustcert.pem'
+    output_file = 'gs://<your-output-bucket>/<your-output-file>'
+    
+    pipeline_options = PipelineOptions()
+    pipeline_options.view_as(StandardOptions).streaming = True
+
+    p = beam.Pipeline(options=pipeline_options)
+
+    pulsar_data = read_from_pulsar(pulsar_service_url, pulsar_topic, tls_cert_file, tls_key_file, tls_trust_cert_file, 'your-subscription-name')
+    
+    (
+        p
+        | 'ReadFromPulsar' >> beam.Create(pulsar_data)
+        | 'ValidateAndFilterJson' >> beam.ParDo(ValidateAndFilterJson())
+        | 'ParseJson' >> beam.ParDo(ParseJson())
+        | 'FormatJson' >> beam.ParDo(FormatJson())
+        | 'WriteToGCS' >> beam.io.WriteToText(output_file, file_name_suffix='.json')
+    )
+
+    result = p.run()
+    result.wait_until_finish()
+
+if __name__ == '__main__':
+    run()
