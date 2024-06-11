@@ -2,13 +2,50 @@ import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions, StandardOptions
 import json
 import logging
+import pulsar
+
+class PulsarReader(beam.io.iobase.BoundedSource):
+    def __init__(self, pulsar_service_url, pulsar_topic, subscription_name, tls_cert_file, tls_key_file, tls_trust_cert_file):
+        self.pulsar_service_url = pulsar_service_url
+        self.pulsar_topic = pulsar_topic
+        self.subscription_name = subscription_name
+        self.tls_cert_file = tls_cert_file
+        self.tls_key_file = tls_key_file
+        self.tls_trust_cert_file = tls_trust_cert_file
+
+    def estimate_size(self):
+        # Estimation logic, if applicable
+        return 0
+
+    def get_range_tracker(self, start_position, stop_position):
+        return beam.io.iobase.OffsetRangeTracker(start_position, stop_position)
+
+    def read(self, range_tracker):
+        client = pulsar.Client(
+            service_url=self.pulsar_service_url,
+            authentication=pulsar.AuthenticationTLS(
+                self.tls_cert_file,
+                self.tls_key_file
+            ),
+            tls_trust_certs_file_path=self.tls_trust_cert_file,
+            tls_allow_insecure_connection=False
+        )
+        consumer = client.subscribe(self.pulsar_topic, subscription_name=self.subscription_name)
+
+        while True:
+            msg = consumer.receive()
+            try:
+                consumer.acknowledge(msg)
+                yield msg.data().decode('utf-8')
+            except:
+                consumer.negative_acknowledge(msg)
+
+        client.close()
 
 class ValidateAndFilterJson(beam.DoFn):
     def process(self, element):
         try:
             record = json.loads(element)
-            
-            # Check if the record contains the necessary fields
             if 'ucgDeviceName' in record and 'ucgJsonData' in record:
                 ucg_json_data = record['ucgJsonData']
                 if 'interfaces' in ucg_json_data and 'interface' in ucg_json_data['interfaces']:
@@ -32,13 +69,11 @@ class ParseJson(beam.DoFn):
             interfaces = record['ucgJsonData']['interfaces']['interface']
             
             for interface_name, interface_data in interfaces.items():
-                # Process main interface counters
                 state_counters = interface_data.get('state', {}).get('counters', {})
-                
+
                 def get_value(counters, key):
                     return counters.get(key, 0) if counters.get(key) is not None else 0
-                
-                # Process main interface
+
                 parsed_record = {
                     'ucgDeviceName': ucg_device_name,
                     'ucgSource': ucg_source,
@@ -68,7 +103,6 @@ class ParseJson(beam.DoFn):
                 }
                 parsed_records.append(parsed_record)
 
-                # Process subinterfaces if they exist
                 if 'subinterfaces' in interface_data:
                     subinterfaces = interface_data['subinterfaces']['subinterface']
                     for subinterface_name, subinterface_data in subinterfaces.items():
@@ -115,6 +149,7 @@ class FormatJson(beam.DoFn):
 def run():
     pulsar_service_url = 'pulsar://your-pulsar-service-url:6650'
     pulsar_topic = 'your-pulsar-topic'
+    subscription_name = 'your-subscription-name'
     tls_cert_file = 'path/to/cert.pem'
     tls_key_file = 'path/to/key.pem'
     tls_trust_cert_file = 'path/to/trustcert.pem'
@@ -127,26 +162,12 @@ def run():
 
     (
         p
-        | 'ReadFromPulsar' >> beam.io.ReadFromPulsar(
-            service_url=pulsar_service_url,
-            topic=pulsar_topic,
-            auth_plugin_class_name='org.apache.pulsar.client.impl.auth.AuthenticationTls',
-            auth_params={
-                'tlsCertFile': tls_cert_file,
-                'tlsKeyFile': tls_key_file
-            },
-            tls_trust_certs_file_path=tls_trust_cert_file,
-            tls_allow_insecure_connection=False,
-            subscription='your-subscription-name'
-        )
-        | 'ValidateAndFilterJson' >> beam.ParDo(ValidateAndFilterJson())
-        | 'ParseJson' >> beam.ParDo(ParseJson())
-        | 'FormatJson' >> beam.ParDo(FormatJson())
-        | 'WriteToGCS' >> beam.io.WriteToText(output_file, file_name_suffix='.json')
-    )
-
-    result = p.run()
-    result.wait_until_finish()
-
-if __name__ == '__main__':
-    run()
+        | 'ReadFromPulsar' >> beam.io.Read(PulsarReader(
+            pulsar_service_url=pulsar_service_url,
+            pulsar_topic=pulsar_topic,
+            subscription_name=subscription_name,
+            tls_cert_file=tls_cert_file,
+            tls_key_file=tls_key_file,
+            tls_trust_cert_file=tls_trust_cert_file
+        ))
+        | 'ValidateAndFilterJson' >> beam.ParDo
