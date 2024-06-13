@@ -14,7 +14,6 @@ class PulsarReader(beam.io.iobase.BoundedSource):
         self.tls_trust_cert_file = tls_trust_cert_file
 
     def estimate_size(self):
-        # Estimation logic, if applicable
         return 0
 
     def get_range_tracker(self, start_position, stop_position):
@@ -37,7 +36,8 @@ class PulsarReader(beam.io.iobase.BoundedSource):
             try:
                 consumer.acknowledge(msg)
                 yield msg.data().decode('utf-8')
-            except:
+            except Exception as e:
+                logging.error("Error processing message: %s", e)
                 consumer.negative_acknowledge(msg)
 
         client.close()
@@ -170,4 +170,13 @@ def run():
             tls_key_file=tls_key_file,
             tls_trust_cert_file=tls_trust_cert_file
         ))
-        | 'ValidateAndFilterJson' >> beam.ParDo
+        | 'ValidateAndFilterJson' >> beam.ParDo(ValidateAndFilterJson())
+        | 'ParseJson' >> beam.ParDo(ParseJson())
+        | 'FormatJson' >> beam.ParDo(FormatJson())
+        | 'WriteToGCS' >> beam.io.WriteToText(output_file)
+    )
+
+    p.run().wait_until_finish()
+
+if __name__ == '__main__':
+    run()
