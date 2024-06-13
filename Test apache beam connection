@@ -1,0 +1,51 @@
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.io.gcp.bigquery import WriteToBigQuery
+import pulsar
+
+class CustomPipelineOptions(PipelineOptions):
+    @classmethod
+    def _add_argparse_args(cls, parser):
+        parser.add_value_provider_argument('--pulsar_service_url', type=str)
+        parser.add_value_provider_argument('--pulsar_topic', type=str)
+        parser.add_value_provider_argument('--tls_cert_file', type=str)
+        parser.add_value_provider_argument('--tls_key_file', type=str)
+        parser.add_value_provider_argument('--tls_trust_cert_file', type=str)
+        parser.add_value_provider_argument('--output_location', type=str)
+
+def read_from_pulsar(pulsar_service_url, topic, tls_cert_file, tls_key_file, tls_trust_cert_file, subscription_name):
+    client = pulsar.Client(
+        service_url=pulsar_service_url,
+        authentication=pulsar.AuthenticationTLS(tls_cert_file, tls_key_file),
+        tls_trust_certs_file_path=tls_trust_cert_file,
+        tls_allow_insecure_connection=False
+    )
+    consumer = client.subscribe(topic, subscription_name, consumer_type=pulsar.ConsumerType.Shared)
+    while True:
+        msg = consumer.receive()
+        yield msg.data()
+        consumer.acknowledge(msg)
+    client.close()
+
+def run(argv=None):
+    pipeline_options = PipelineOptions()
+    custom_options = pipeline_options.view_as(CustomPipelineOptions)
+
+    with beam.Pipeline(options=pipeline_options) as p:
+        records = (
+            p
+            | 'Read from Pulsar' >> beam.Create(read_from_pulsar(
+                custom_options.pulsar_service_url.get(),
+                custom_options.pulsar_topic.get(),
+                custom_options.tls_cert_file.get(),
+                custom_options.tls_key_file.get(),
+                custom_options.tls_trust_cert_file.get(),
+                'my-subscription'
+            ))
+        )
+
+        # Process and write to GCS
+        records | 'Write to GCS' >> beam.io.WriteToText(custom_options.output_location)
+
+if __name__ == '__main__':
+    run()
