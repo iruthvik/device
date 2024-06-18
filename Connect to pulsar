@@ -1,0 +1,27 @@
+import apache_beam as beam
+from apache_beam.io.gcp.gcsio import WriteToText
+from apache_beam.io.kafka import ReadFromKafka
+
+# Define Pulsar connection details (replace with your values)
+pulsar_service_url = 'pulsar-service-url'
+pulsar_topic_name = 'pulsar-topic-name'
+cert_file = '/path/to/your/cert.pem'
+key_file = '/path/to/your/key.pem'
+trust_cert_file = '/path/to/your/trust_cert.pem'
+
+with beam.Pipeline() as pipeline:
+  # Read data from Pulsar topic with TLS authentication
+  data = pipeline | 'ReadFromKafka' >> ReadFromKafka(
+      consumer_config={
+          'pulsar.service.url': pulsar_service_url,
+          'topic': pulsar_topic_name,
+          'pulsar.client.authPluginClassName': 'org.apache.pulsar.client.impl.auth.AuthenticationTls',
+          'pulsar.client.authParams': f'tlsCertFile:{cert_file},tlsKeyFile:{key_file}',
+          'pulsar.client.tlsTrustCertsFilePath': trust_cert_file,
+          'pulsar.client.tlsAllowInsecureConnection': 'false',  # Set to false for secure connection
+          # ... other Pulsar configuration options (if needed)
+      }
+  )
+
+  # Write data to GCS bucket (adjust path as needed)
+  write_to_gcs = data | 'WriteToGCS' >> WriteToText('gs://your-bucket/path/data.txt')
