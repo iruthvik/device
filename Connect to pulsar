@@ -25,3 +25,39 @@ with beam.Pipeline() as pipeline:
 
   # Write data to GCS bucket (adjust path as needed)
   write_to_gcs = data | 'WriteToGCS' >> WriteToText('gs://your-bucket/path/data.txt')
+
+
+
+
+#########№########
+import apache_beam as beam
+from apache_beam.io.gcp.gcsio import WriteToText
+
+# Define Pulsar connection details (replace with your values)
+pulsar_service_url = 'pulsar-service-url'
+pulsar_topic_name = 'pulsar-topic-name'
+cert_file = '/path/to/your/cert.pem'
+key_file = '/path/to/your/key.pem'
+trust_cert_file = '/path/to/your/trust_cert.pem'
+
+# Custom DoFn for reading from Pulsar
+class ReadFromPulsar(beam.DoFn):
+  def __init__(self, pulsar_service_url, topic_name):
+    self.pulsar_service_url = pulsar_service_url
+    self.topic_name = topic_name
+
+  def process(self):
+    # Use Pulsar client library to connect and read messages
+    # ... (implementation using pulsar-client library)
+    # Yield each message as a dictionary
+    yield message_data
+
+with beam.Pipeline() as pipeline:
+  # Read data from Pulsar topic using custom DoFn
+  data = pipeline | 'ReadFromPulsar' >> ParDo(ReadFromPulsar(
+      pulsar_service_url=pulsar_service_url,
+      topic_name=pulsar_topic_name
+  ))
+
+  # Write data to GCS bucket (adjust path as needed)
+  write_to_gcs = data | 'WriteToGCS' >> WriteToText('gs://your-bucket/path/data.txt')
