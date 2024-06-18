@@ -61,3 +61,67 @@ with beam.Pipeline() as pipeline:
 
   # Write data to GCS bucket (adjust path as needed)
   write_to_gcs = data | 'WriteToGCS' >> WriteToText('gs://your-bucket/path/data.txt')
+
+
+################
+import apache_beam as beam
+from apache_beam.io.gcp.gcsio import WriteToText
+from pulsar import Client
+
+# Define Pulsar connection details (replace with your values)
+pulsar_service_url = 'pulsar-service-url'
+pulsar_topic_name = 'pulsar-topic-name'
+cert_file = '/path/to/your/cert.pem'
+key_file = '/path/to/your/key.pem'
+trust_cert_file = '/path/to/your/trust_cert.pem'
+
+
+class ReadFromPulsar(beam.DoFn):
+  def __init__(self, pulsar_service_url, topic_name, cert_file, key_file, trust_cert_file):
+    self.pulsar_service_url = pulsar_service_url
+    self.topic_name = topic_name
+    self.cert_file = cert_file
+    self.key_file = key_file
+    self.trust_cert_file = trust_cert_file
+
+  def process(self):
+    # Create Pulsar client with TLS authentication
+    client = Client(service_url=self.pulsar_service_url,
+                     authentication=ClientAuthentication(
+                         authentication_type=ClientAuthenticationType.TLS,
+                         tls_trust_cert_file_path=self.trust_cert_file,
+                         tls_certificate_file_path=self.cert_file,
+                         tls_key_file_path=self.key_file
+                     ))
+
+    # Create consumer for the topic
+    consumer = client.subscribe(self.topic_name, subscription_name="my-subscription")
+
+    for message in consumer:
+      try:
+        # Process message data (extract dictionary or desired format)
+        message_data = {  # Extract data from message
+            # ...
+        }
+        yield message_data
+      finally:
+        # Acknowledge message after processing
+        consumer.acknowledge(message.message_id)
+
+    # Close consumer and client connections
+    consumer.unsubscribe()
+    client.close()
+
+
+with beam.Pipeline() as pipeline:
+  # Read data from Pulsar topic using custom DoFn
+  data = pipeline | 'ReadFromPulsar' >> ParDo(ReadFromPulsar(
+      pulsar_service_url=pulsar_service_url,
+      topic_name=pulsar_topic_name,
+      cert_file=cert_file,
+      key_file=key_file,
+      trust_cert_file=trust_cert_file
+  ))
+
+  # Write data to GCS bucket (adjust path as needed)
+  write_to_gcs = data | 'WriteToGCS' >> WriteToText('gs://your-bucket/path/data.txt')
