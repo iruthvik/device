@@ -1,0 +1,32 @@
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.SparkSession
+
+val spark = SparkSession.builder
+  .appName("Example")
+  .getOrCreate()
+
+val deltaDF = spark.read.format("delta").load("path/to/delta")
+
+val columnsToAdd = Map(
+  "recordtype" -> lit("juniper_inf"),
+  "delta_time_ms" -> col("delta_timestamp").cast("long"),
+  "timestamp" -> date_format(from_unixtime(col("min_timestamp") / 1000), "yyyy-MM-dd HH:mm:00").cast("timestamp"),
+  "start_epochtime" -> col("min_timestamp"),
+  "end_epochtime" -> col("max_timestamp"),
+  "subinterface" -> lit("null")
+)
+
+val outputDF = deltaDF
+  .withColumns(columnsToAdd)
+  .selectExpr(
+    "recordtype", "timestamp", "start_epochtime", "end_epochtime", "delta_time_ms",
+    "devicename", "interface", "subinterface", "delta_in_octets as in_octets", "delta_in_pkts as in_pkts", 
+    "delta_in_multicast_pkts as in_multicast_pkts", "delta_in_unicast_pkts as in_unicast_pkts", 
+    "delta_in_discards as in_discards", "delta_in_errors as in_errors", "delta_in_broadcast_pkts as in_broadcast_pkts",
+    "delta_out_octets as out_octets", "delta_out_pkts as out_pkts", "delta_out_multicast_pkts as out_multicast_pkts", 
+    "max_in_fcs_errors as in_fcs_errors", "delta_out_unicast_pkts as out_unicast_pkts", "delta_out_discards as out_discards", 
+    "delta_out_errors as out_errors", "delta_out_broadcast_pkts as out_broadcast_pkts", "max_last_clear as last_clear", 
+    "max_carrier_transitions as carrier_transitions"
+  )
+
+outputDF.show()
